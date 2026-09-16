@@ -49,9 +49,10 @@ npm start
 | `DATA_DIR` | 仅日志等附属文件，必须位于项目目录内，默认 `data` |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | 远程 MySQL。库使用 `grok_bot`；本应用只建/用 `wr_` 前缀表（`wr_reports`、`wr_yunxiao_items`） |
 | `YUNXIAO_ORG_ID` | 云效企业 id（只读导入）。示例值仅用于文档：`62bcfcb73e81781f3ad1d7d7` |
-| `YUNXIAO_PAT` | 云效个人访问令牌，作为 `Authorization: Bearer` 调用 OpenAPI。**不要提交** |
+| `YUNXIAO_PAT` | 云效个人访问令牌。请求头 `x-yunxiao-token`。**不要提交** |
+| `YUNXIAO_API_BASE_URL` | 可选，默认 `https://openapi-rdc.aliyuncs.com` |
 | `YUNXIAO_PROJECT_NAME` | 可选，默认 `DNK-设备软件` |
-| `YUNXIAO_SPACE_ID` | 可选，项目 spaceIdentifier。默认 `6230f5b04297236a20e79654d4`（DNK-设备软件 / CFRK）。有值时不再按名称搜索项目 |
+| `YUNXIAO_SPACE_ID` | 可选，项目 spaceId。默认 `6230f5b04297236a20e79654d4`（DNK-设备软件 / CFRK） |
 
 浏览器 `localStorage` 只作缓存；刷新或同机其它浏览器访问同一服务时以 MySQL 为准。
 
@@ -65,10 +66,10 @@ npm test
 
 ### 云效只读导入
 
-从云效（devops/2021-06-25 `ListWorkitems`）按固定 `YUNXIAO_SPACE_ID` 拉取近 N 天或当前迭代的 **Task**（Bug 可选），写入 `wr_yunxiao_items` 缓存，再映射成周报草稿。不向云效回写。
+从云效 `POST /oapi/v1/projex/organizations/{orgId}/workitems:search` 按固定 `YUNXIAO_SPACE_ID` 拉取近 N 天或当前迭代的 **Task**（Bug 可选），写入 `wr_yunxiao_items` 缓存，再映射成周报草稿。不向云效回写。认证用 `x-yunxiao-token`（不要只靠 Bearer）。
 
-1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_PROJECT_NAME`）。
-2. `GET /api/yunxiao/workitems` 同步并返回缓存项。
+1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_API_BASE_URL`）。
+2. `GET /api/yunxiao/workitems` 同步并返回缓存项（部署后应非空）。
 3. `POST /api/yunxiao/import` 用选中的 id 创建周报。
 4. `GET /api/reports/:id` 核对草稿。
 
@@ -78,7 +79,7 @@ curl -s -X POST http://localhost:5174/api/yunxiao/import -H "Content-Type: appli
 curl -s http://localhost:5174/api/reports/<id>
 ```
 
-OpenAPI 基址为 `https://openapi-rdc.aliyuncs.com`，请求头 `Authorization: Bearer %YUNXIAO_PAT%`。
+OpenAPI 基址默认 `https://openapi-rdc.aliyuncs.com`，请求头 `x-yunxiao-token: %YUNXIAO_PAT%`。若返回 HTML 登录页，接口会 502，而不是空列表。
 
 ### 手动核对草稿持久化
 
