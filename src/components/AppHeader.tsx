@@ -1,0 +1,32 @@
+import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
+
+export function AppHeader({ right }: { right?: ReactNode }) {
+  return (
+    <header className="app-header">
+      <Link to="/" className="brand">
+        <span className="brand-mark">报</span>
+        汇报助手
+      </Link>
+      {right ?? <div className="header-note">草稿仅保存在本机浏览器</div>}
+    </header>
+  );
+}
+
+export function Stepper({ current }: { current: 1 | 2 | 3 }) {
+  const steps = [
+    { n: 1, t: "元信息" },
+    { n: 2, t: "录入素材" },
+    { n: 3, t: "预览导出" },
+  ];
+  return (
+    <div className="stepper">
+      {steps.map((s) => (
+        <div key={s.n} className={`step${current === s.n ? " active" : ""}`}>
+          <b>步骤 {s.n}/3</b>
+          {s.t}
+        </div>
+      ))}
+    </div>
+  );
+}
