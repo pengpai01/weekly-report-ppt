@@ -10,11 +10,13 @@ import type {
   Slide,
   TocPayload,
 } from "../types";
+import { PROJECT_STATUS_LABEL } from "../types";
 import { compactDate } from "./format";
 
 export const THEME = {
-  navy: "0A2744",
+  navy: "0B2A4A",
   navyDeep: "071C31",
+  navyBar: "0E3358",
   blue: "0F4C81",
   blueMid: "1A6BB5",
   accent: "2B8CDB",
@@ -33,61 +35,127 @@ export const THEME = {
 const FONT = "Microsoft YaHei";
 const W = 13.333;
 const H = 7.5;
+const HEADER_H = 0.86;
+const GOLD_H = 0.055;
+
+type DeckBrand = {
+  department: string;
+  title: string;
+};
 
 function as<T>(payload: Slide["payload"]): T {
   return payload as T;
 }
 
-function addFooter(slide: PptxGenJS.Slide, page: number, total: number, light = false) {
-  slide.addText(`${page} / ${total}`, {
-    x: W - 1.6,
-    y: H - 0.42,
-    w: 1.3,
-    h: 0.28,
+function addFooter(
+  slide: PptxGenJS.Slide,
+  page: number,
+  total: number,
+  brand?: DeckBrand,
+  light = false,
+) {
+  const color = light ? "A8C2DC" : THEME.footer;
+  const label = [brand?.department, brand?.title].filter((s) => s?.trim()).join("  ·  ");
+  if (label) {
+    slide.addText(label, {
+      x: 0.42,
+      y: H - 0.4,
+      w: 9.4,
+      h: 0.26,
+      fontFace: FONT,
+      fontSize: 10,
+      color,
+      margin: 0,
+    });
+  }
+  slide.addText(`${String(page).padStart(2, "0")} / ${String(total).padStart(2, "0")}`, {
+    x: W - 1.85,
+    y: H - 0.4,
+    w: 1.45,
+    h: 0.26,
     fontFace: FONT,
     fontSize: 10,
-    color: light ? "A8C2DC" : THEME.footer,
+    color,
     align: "right",
     margin: 0,
   });
 }
 
-function addTopBar(slide: PptxGenJS.Slide, title: string) {
+function addTopBar(
+  slide: PptxGenJS.Slide,
+  title: string,
+  opts?: { badge?: string },
+) {
   slide.addShape("rect", {
     x: 0,
     y: 0,
     w: W,
-    h: 0.92,
+    h: HEADER_H,
     fill: { color: THEME.navy },
   });
   slide.addShape("rect", {
     x: 0,
-    y: 0.92,
+    y: HEADER_H,
     w: W,
-    h: 0.06,
+    h: GOLD_H,
     fill: { color: THEME.gold },
   });
   slide.addShape("rect", {
     x: 0,
     y: 0,
-    w: 0.12,
-    h: 0.92,
+    w: 0.1,
+    h: HEADER_H,
     fill: { color: THEME.gold },
   });
+  const hasBadge = Boolean(opts?.badge);
   slide.addText(title, {
-    x: 0.45,
-    y: 0.22,
-    w: 12.2,
-    h: 0.5,
+    x: 0.42,
+    y: 0.18,
+    w: hasBadge ? 10.35 : 12.45,
+    h: 0.52,
     fontFace: FONT,
     fontSize: 22,
     bold: true,
     color: THEME.white,
+    valign: "middle",
     margin: 0,
+  });
+  if (opts?.badge) {
+    slide.addShape("roundRect", {
+      x: 11.05,
+      y: 0.24,
+      w: 1.82,
+      h: 0.38,
+      fill: { color: THEME.gold },
+      rectRadius: 0.12,
+    });
+    slide.addText(opts.badge, {
+      x: 11.05,
+      y: 0.24,
+      w: 1.82,
+      h: 0.38,
+      fontFace: FONT,
+      fontSize: 12,
+      bold: true,
+      color: THEME.navyDeep,
+      align: "center",
+      valign: "middle",
+      margin: 0,
+    });
+  }
+}
+
+function addContentBackdrop(slide: PptxGenJS.Slide) {
+  slide.addShape("rect", {
+    x: 0,
+    y: HEADER_H + GOLD_H,
+    w: W,
+    h: H - HEADER_H - GOLD_H,
+    fill: { color: THEME.light },
   });
 }
 
-function renderCover(pres: PptxGenJS, slide: PptxGenJS.Slide, payload: CoverPayload) {
+function renderCover(slide: PptxGenJS.Slide, payload: CoverPayload) {
   slide.addShape("rect", {
     x: 0,
     y: 0,
@@ -98,144 +166,214 @@ function renderCover(pres: PptxGenJS, slide: PptxGenJS.Slide, payload: CoverPayl
   slide.addShape("rect", {
     x: 0,
     y: 0,
-    w: 0.18,
+    w: 0.16,
     h: H,
     fill: { color: THEME.gold },
   });
   slide.addShape("ellipse", {
-    x: 10.6,
-    y: -1.8,
-    w: 4.8,
-    h: 4.8,
-    fill: { color: THEME.navy, transparency: 30 },
+    x: 10.45,
+    y: -1.85,
+    w: 5.1,
+    h: 5.1,
+    fill: { color: THEME.navy, transparency: 28 },
   });
   slide.addShape("ellipse", {
-    x: 11.4,
-    y: 5.2,
-    w: 3.2,
-    h: 3.2,
-    fill: { color: THEME.blue, transparency: 45 },
+    x: 11.35,
+    y: 5.05,
+    w: 3.4,
+    h: 3.4,
+    fill: { color: THEME.blue, transparency: 48 },
   });
-  slide.addText(
-    payload.templateType === "biweekly" ? "BIWEEKLY REPORT" : "WEEKLY REPORT",
-    {
-      x: 0.85,
-      y: 1.55,
-      w: 10,
-      h: 0.35,
-      fontFace: FONT,
-      fontSize: 13,
-      color: THEME.gold,
-      charSpacing: 4,
-      margin: 0,
-    },
-  );
-  slide.addText(payload.title, {
-    x: 0.85,
-    y: 2.05,
-    w: 11.2,
-    h: 1.1,
+  slide.addShape("diamond", {
+    x: 0.88,
+    y: 1.42,
+    w: 0.18,
+    h: 0.18,
+    fill: { color: THEME.gold },
+  });
+
+  const period = payload.templateType === "biweekly" ? "双周报" : "周报";
+  const kicker = payload.templateType === "biweekly" ? "BIWEEKLY REPORT" : "WEEKLY REPORT";
+  slide.addText(`${kicker}  ·  ${period}`, {
+    x: 1.18,
+    y: 1.32,
+    w: 10.4,
+    h: 0.36,
     fontFace: FONT,
-    fontSize: 44,
+    fontSize: 13,
+    color: THEME.gold,
+    charSpacing: 2,
+    margin: 0,
+  });
+  slide.addText(payload.title, {
+    x: 0.88,
+    y: 1.82,
+    w: 11.2,
+    h: 1.15,
+    fontFace: FONT,
+    fontSize: 42,
     bold: true,
     color: THEME.white,
     margin: 0,
   });
   slide.addShape("rect", {
-    x: 0.85,
-    y: 3.28,
-    w: 2.1,
-    h: 0.07,
+    x: 0.88,
+    y: 3.08,
+    w: 1.85,
+    h: 0.06,
     fill: { color: THEME.gold },
   });
 
-  const meta: string[] = [`部门：${payload.department || "—"}`, `日期：${payload.dateLabel}`];
-  if (payload.author.trim()) meta.push(`汇报人：${payload.author}`);
-
-  slide.addText(meta.join("    "), {
-    x: 0.85,
-    y: 5.85,
-    w: 11,
-    h: 0.4,
-    fontFace: FONT,
-    fontSize: 16,
-    color: "D5E4F2",
-    margin: 0,
+  slide.addShape("rect", {
+    x: 0,
+    y: 5.95,
+    w: W,
+    h: 1.55,
+    fill: { color: THEME.navyBar },
   });
-  slide.addText("内部汇报 · 请勿外传", {
-    x: 0.85,
-    y: 6.35,
-    w: 8,
-    h: 0.28,
-    fontFace: FONT,
-    fontSize: 12,
-    color: "7F9BB8",
-    margin: 0,
+  slide.addShape("rect", {
+    x: 0,
+    y: 5.95,
+    w: W,
+    h: 0.045,
+    fill: { color: THEME.gold },
+  });
+
+  const cells: { label: string; value: string }[] = [
+    { label: "部门", value: payload.department.trim() || "—" },
+    { label: "日期", value: payload.dateLabel || "—" },
+  ];
+  if (payload.author.trim()) {
+    cells.push({ label: "汇报人", value: payload.author.trim() });
+  }
+  const cellW = 3.6;
+  cells.forEach((cell, i) => {
+    const x = 0.88 + i * (cellW + 0.35);
+    slide.addText(cell.label, {
+      x,
+      y: 6.14,
+      w: cellW,
+      h: 0.28,
+      fontFace: FONT,
+      fontSize: 11,
+      color: THEME.gold,
+      margin: 0,
+    });
+    slide.addText(cell.value, {
+      x,
+      y: 6.42,
+      w: cellW,
+      h: 0.42,
+      fontFace: FONT,
+      fontSize: 18,
+      bold: true,
+      color: THEME.white,
+      margin: 0,
+    });
+    if (i < cells.length - 1) {
+      slide.addShape("rect", {
+        x: x + cellW + 0.12,
+        y: 6.28,
+        w: 0.015,
+        h: 0.55,
+        fill: { color: "3A5A78" },
+      });
+    }
   });
 }
 
-function renderToc(slide: PptxGenJS.Slide, payload: TocPayload, page: number, total: number) {
+function renderToc(
+  slide: PptxGenJS.Slide,
+  payload: TocPayload,
+  page: number,
+  total: number,
+  brand: DeckBrand,
+) {
   slide.addShape("rect", {
     x: 0,
     y: 0,
-    w: 4.55,
+    w: 4.45,
     h: H,
     fill: { color: THEME.navy },
   });
   slide.addShape("rect", {
-    x: 4.55,
+    x: 4.45,
     y: 0,
-    w: W - 4.55,
+    w: W - 4.45,
     h: H,
     fill: { color: THEME.white },
   });
   slide.addShape("rect", {
-    x: 4.55,
+    x: 4.45,
     y: 0,
     w: 0.08,
     h: H,
     fill: { color: THEME.gold },
   });
+  slide.addShape("diamond", {
+    x: 0.55,
+    y: 2.05,
+    w: 0.18,
+    h: 0.18,
+    fill: { color: THEME.gold },
+  });
   slide.addText("目录", {
-    x: 0.45,
-    y: 2.35,
-    w: 3.7,
+    x: 0.48,
+    y: 2.38,
+    w: 3.55,
     h: 0.7,
     fontFace: FONT,
-    fontSize: 36,
+    fontSize: 40,
     bold: true,
     color: THEME.white,
     margin: 0,
   });
   slide.addText("CONTENTS", {
-    x: 0.45,
-    y: 3.05,
-    w: 3.7,
-    h: 0.35,
+    x: 0.48,
+    y: 3.1,
+    w: 3.55,
+    h: 0.34,
     fontFace: FONT,
     fontSize: 14,
     color: THEME.gold,
     charSpacing: 3,
     margin: 0,
   });
+  slide.addShape("rect", {
+    x: 0.5,
+    y: 3.58,
+    w: 1.45,
+    h: 0.05,
+    fill: { color: THEME.gold },
+  });
 
   payload.items.forEach((item, i) => {
-    const y = 1.35 + i * 1.55;
+    const y = 1.28 + i * 1.62;
+    slide.addShape("roundRect", {
+      x: 5.15,
+      y: y + 0.08,
+      w: 0.78,
+      h: 0.78,
+      fill: { color: THEME.gold },
+      rectRadius: 0.08,
+    });
     slide.addText(item.index, {
       x: 5.15,
-      y,
-      w: 1.4,
-      h: 0.7,
+      y: y + 0.08,
+      w: 0.78,
+      h: 0.78,
       fontFace: FONT,
-      fontSize: 32,
+      fontSize: 16,
       bold: true,
-      color: THEME.blue,
+      color: THEME.navyDeep,
+      align: "center",
+      valign: "middle",
       margin: 0,
     });
     slide.addText(item.title, {
-      x: 6.7,
-      y: y + 0.02,
-      w: 5.8,
+      x: 6.2,
+      y: y + 0.08,
+      w: 6.3,
       h: 0.42,
       fontFace: FONT,
       fontSize: 22,
@@ -244,10 +382,10 @@ function renderToc(slide: PptxGenJS.Slide, payload: TocPayload, page: number, to
       margin: 0,
     });
     slide.addText(item.en, {
-      x: 6.7,
-      y: y + 0.44,
-      w: 5.8,
-      h: 0.3,
+      x: 6.2,
+      y: y + 0.5,
+      w: 6.3,
+      h: 0.28,
       fontFace: FONT,
       fontSize: 12,
       color: THEME.muted,
@@ -256,14 +394,14 @@ function renderToc(slide: PptxGenJS.Slide, payload: TocPayload, page: number, to
     if (i < payload.items.length - 1) {
       slide.addShape("rect", {
         x: 5.15,
-        y: y + 1.22,
-        w: 7.3,
-        h: 0.015,
+        y: y + 1.28,
+        w: 7.35,
+        h: 0.012,
         fill: { color: THEME.line },
       });
     }
   });
-  addFooter(slide, page, total);
+  addFooter(slide, page, total, brand);
 }
 
 function renderPart(slide: PptxGenJS.Slide, payload: PartPayload) {
@@ -277,15 +415,28 @@ function renderPart(slide: PptxGenJS.Slide, payload: PartPayload) {
   slide.addShape("rect", {
     x: 0,
     y: 0,
-    w: 0.18,
+    w: 0.16,
     h: H,
     fill: { color: THEME.gold },
   });
+  slide.addText(payload.partNo, {
+    x: 7.2,
+    y: 1.15,
+    w: 5.8,
+    h: 4.6,
+    fontFace: FONT,
+    fontSize: 160,
+    bold: true,
+    color: "163A5C",
+    align: "right",
+    valign: "middle",
+    margin: 0,
+  });
   slide.addText("PART", {
-    x: 0.9,
-    y: 2.05,
-    w: 4,
-    h: 0.32,
+    x: 0.88,
+    y: 2.12,
+    w: 5.2,
+    h: 0.3,
     fontFace: FONT,
     fontSize: 14,
     color: THEME.gold,
@@ -293,42 +444,99 @@ function renderPart(slide: PptxGenJS.Slide, payload: PartPayload) {
     margin: 0,
   });
   slide.addText(payload.partNo, {
-    x: 0.85,
-    y: 2.35,
-    w: 6,
-    h: 1.15,
+    x: 0.82,
+    y: 2.4,
+    w: 6.2,
+    h: 1.05,
     fontFace: FONT,
-    fontSize: 72,
+    fontSize: 68,
     bold: true,
     color: THEME.white,
     margin: 0,
   });
   slide.addShape("rect", {
-    x: 0.9,
-    y: 3.65,
-    w: 1.6,
-    h: 0.06,
+    x: 0.88,
+    y: 3.55,
+    w: 1.55,
+    h: 0.055,
     fill: { color: THEME.gold },
   });
   slide.addText(payload.title, {
-    x: 0.9,
-    y: 3.95,
+    x: 0.88,
+    y: 3.78,
     w: 11,
-    h: 0.7,
+    h: 0.62,
     fontFace: FONT,
-    fontSize: 32,
+    fontSize: 30,
     bold: true,
     color: THEME.white,
     margin: 0,
   });
   slide.addText(payload.en, {
-    x: 0.9,
-    y: 4.65,
+    x: 0.88,
+    y: 4.42,
     w: 11,
-    h: 0.35,
+    h: 0.34,
     fontFace: FONT,
-    fontSize: 16,
+    fontSize: 15,
     color: "8FB0CC",
+    margin: 0,
+  });
+}
+
+function addBulletRow(
+  slide: PptxGenJS.Slide,
+  text: string,
+  index: number,
+  y: number,
+  rowH: number,
+) {
+  slide.addShape("roundRect", {
+    x: 0.45,
+    y,
+    w: 12.4,
+    h: rowH,
+    fill: { color: THEME.white },
+    line: { color: THEME.line, pt: 0.75 },
+    rectRadius: 0.06,
+  });
+  slide.addShape("rect", {
+    x: 0.45,
+    y,
+    w: 0.08,
+    h: rowH,
+    fill: { color: THEME.gold },
+  });
+  slide.addShape("ellipse", {
+    x: 0.72,
+    y: y + (rowH - 0.34) / 2,
+    w: 0.34,
+    h: 0.34,
+    fill: { color: THEME.navy },
+  });
+  slide.addText(String(index), {
+    x: 0.72,
+    y: y + (rowH - 0.34) / 2,
+    w: 0.34,
+    h: 0.34,
+    fontFace: FONT,
+    fontSize: 11,
+    bold: true,
+    color: THEME.white,
+    align: "center",
+    valign: "middle",
+    margin: 0,
+  });
+  slide.addText(text, {
+    x: 1.22,
+    y: y + 0.08,
+    w: 11.4,
+    h: rowH - 0.16,
+    fontFace: FONT,
+    fontSize: rowH < 0.85 ? 13 : 15,
+    color: THEME.text,
+    valign: "middle",
+    wrap: true,
     margin: 0,
   });
 }
@@ -338,74 +546,24 @@ function renderProject(
   payload: ProjectPayload,
   page: number,
   total: number,
+  brand: DeckBrand,
 ) {
   const title = `${payload.ordinal}、${payload.name}${payload.continued ? "（续）" : ""}`;
-  addTopBar(slide, title);
-  slide.addShape("rect", {
-    x: 0,
-    y: 0.98,
-    w: W,
-    h: H - 0.98,
-    fill: { color: THEME.light },
-  });
+  const badge = payload.status ? PROJECT_STATUS_LABEL[payload.status] : undefined;
+  addTopBar(slide, title, { badge });
+  addContentBackdrop(slide);
 
   const count = Math.max(payload.bullets.length, 1);
-  const top = 1.25;
-  const gap = 0.12;
+  const top = 1.18;
+  const gap = 0.1;
   const available = 5.55;
-  const rowH = Math.min(1.15, (available - gap * (count - 1)) / count);
+  const rowH = Math.min(1.12, (available - gap * (count - 1)) / count);
 
   payload.bullets.forEach((bullet, i) => {
     const y = top + i * (rowH + gap);
-    slide.addShape("roundRect", {
-      x: 0.45,
-      y,
-      w: 12.4,
-      h: rowH,
-      fill: { color: THEME.white },
-      rectRadius: 0.08,
-      shadow: {
-        type: "outer",
-        color: "0A2744",
-        blur: 8,
-        opacity: 0.08,
-        offset: 2,
-      },
-    });
-    slide.addShape("ellipse", {
-      x: 0.68,
-      y: y + (rowH - 0.38) / 2,
-      w: 0.38,
-      h: 0.38,
-      fill: { color: THEME.blue },
-    });
-    slide.addText(String(i + 1), {
-      x: 0.68,
-      y: y + (rowH - 0.38) / 2,
-      w: 0.38,
-      h: 0.38,
-      fontFace: FONT,
-      fontSize: 12,
-      bold: true,
-      color: THEME.white,
-      align: "center",
-      valign: "middle",
-      margin: 0,
-    });
-    slide.addText(bullet, {
-      x: 1.25,
-      y: y + 0.08,
-      w: 11.35,
-      h: rowH - 0.16,
-      fontFace: FONT,
-      fontSize: rowH < 0.85 ? 13 : 15,
-      color: THEME.text,
-      valign: "middle",
-      wrap: true,
-      margin: 0,
-    });
+    addBulletRow(slide, bullet, payload.bulletOffset + i + 1, y, rowH);
   });
-  addFooter(slide, page, total);
+  addFooter(slide, page, total, brand);
 }
 
 function renderIssues(
@@ -413,66 +571,57 @@ function renderIssues(
   payload: IssuesPayload,
   page: number,
   total: number,
+  brand: DeckBrand,
 ) {
   addTopBar(slide, "存在问题与建议");
-  slide.addShape("rect", {
-    x: 0,
-    y: 0.98,
-    w: W,
-    h: H - 0.98,
-    fill: { color: THEME.light },
-  });
+  addContentBackdrop(slide);
 
   if (payload.empty) {
+    slide.addShape("roundRect", {
+      x: 3.55,
+      y: 2.55,
+      w: 6.2,
+      h: 2.35,
+      fill: { color: THEME.white },
+      line: { color: THEME.gold, pt: 1.25 },
+      rectRadius: 0.08,
+    });
     slide.addText("N/A", {
-      x: 0.5,
-      y: 2.7,
-      w: 12.3,
-      h: 1.4,
+      x: 3.55,
+      y: 2.78,
+      w: 6.2,
+      h: 1.05,
       fontFace: FONT,
-      fontSize: 64,
+      fontSize: 48,
       bold: true,
-      color: "B7C4D1",
+      color: THEME.navy,
       align: "center",
+      valign: "middle",
       margin: 0,
     });
     slide.addText("本期无问题与建议", {
-      x: 0.5,
-      y: 4.15,
-      w: 12.3,
-      h: 0.4,
+      x: 3.55,
+      y: 3.9,
+      w: 6.2,
+      h: 0.5,
       fontFace: FONT,
-      fontSize: 16,
+      fontSize: 15,
       color: THEME.muted,
       align: "center",
       margin: 0,
     });
   } else {
+    const count = Math.max(payload.items.length, 1);
+    const top = 1.18;
+    const gap = 0.1;
+    const available = 5.55;
+    const rowH = Math.min(1.05, (available - gap * (count - 1)) / count);
     payload.items.forEach((item, i) => {
-      const y = 1.3 + i * 0.85;
-      slide.addShape("roundRect", {
-        x: 0.5,
-        y,
-        w: 12.3,
-        h: 0.72,
-        fill: { color: THEME.white },
-        rectRadius: 0.08,
-      });
-      slide.addText(`${i + 1}.  ${item}`, {
-        x: 0.75,
-        y: y + 0.08,
-        w: 11.85,
-        h: 0.56,
-        fontFace: FONT,
-        fontSize: 16,
-        color: THEME.text,
-        valign: "middle",
-        wrap: true,
-        margin: 0,
-      });
+      const y = top + i * (rowH + gap);
+      addBulletRow(slide, item, i + 1, y, rowH);
     });
   }
-  addFooter(slide, page, total);
+  addFooter(slide, page, total, brand);
 }
 
 function renderPlan(
@@ -480,68 +629,66 @@ function renderPlan(
   payload: PlanPayload,
   page: number,
   total: number,
+  brand: DeckBrand,
 ) {
   addTopBar(slide, "下周工作计划");
-  slide.addShape("rect", {
-    x: 0,
-    y: 0.98,
-    w: W,
-    h: H - 0.98,
-    fill: { color: THEME.light },
-  });
+  addContentBackdrop(slide);
 
+  const headerCell = {
+    fill: { color: THEME.navy },
+    color: THEME.white,
+    bold: true,
+    align: "center" as const,
+    valign: "middle" as const,
+  };
   const rows: PptxGenJS.TableRow[] = [
     [
-      {
-        text: "项目",
-        options: {
-          fill: { color: THEME.navy },
-          color: THEME.white,
-          bold: true,
-          align: "center" as const,
-          valign: "middle" as const,
-        },
-      },
-      {
-        text: "工作内容",
-        options: {
-          fill: { color: THEME.navy },
-          color: THEME.white,
-          bold: true,
-          align: "center" as const,
-          valign: "middle" as const,
-        },
-      },
+      { text: "序号", options: headerCell },
+      { text: "项目", options: headerCell },
+      { text: "工作内容", options: headerCell },
     ],
-    ...payload.rows.map((row, i) => [
-      {
-        text: row.projectName || "—",
-        options: {
-          fill: { color: i % 2 === 0 ? THEME.white : THEME.rowAlt },
-          color: THEME.text,
-          bold: true,
-          valign: "middle" as const,
-          align: "left" as const,
+    ...payload.rows.map((row, i) => {
+      const fill = { color: i % 2 === 0 ? THEME.white : THEME.rowAlt };
+      return [
+        {
+          text: String(i + 1),
+          options: {
+            fill,
+            color: THEME.navy,
+            bold: true,
+            align: "center" as const,
+            valign: "middle" as const,
+          },
         },
-      },
-      {
-        text: row.items.length ? row.items.map((t, idx) => `${idx + 1}. ${t}`).join("\n") : "—",
-        options: {
-          fill: { color: i % 2 === 0 ? THEME.white : THEME.rowAlt },
-          color: THEME.text,
-          valign: "middle" as const,
-          align: "left" as const,
+        {
+          text: row.projectName || "—",
+          options: {
+            fill,
+            color: THEME.text,
+            bold: true,
+            valign: "middle" as const,
+            align: "left" as const,
+          },
         },
-      },
-    ]),
+        {
+          text: row.items.length ? row.items.map((t, idx) => `${idx + 1}. ${t}`).join("\n") : "—",
+          options: {
+            fill,
+            color: THEME.text,
+            valign: "middle" as const,
+            align: "left" as const,
+          },
+        },
+      ];
+    }),
   ];
 
   slide.addTable(rows, {
-    x: 0.5,
-    y: 1.25,
-    w: 12.3,
+    x: 0.45,
+    y: 1.18,
+    w: 12.4,
     h: 5.55,
-    colW: [3.6, 8.7],
+    colW: [0.9, 3.3, 8.2],
     border: [
       { pt: 0.6, color: THEME.line },
       { pt: 0.6, color: THEME.line },
@@ -554,7 +701,7 @@ function renderPlan(
     valign: "middle",
     align: "left",
   });
-  addFooter(slide, page, total);
+  addFooter(slide, page, total, brand);
 }
 
 function renderClosing(slide: PptxGenJS.Slide, payload: ClosingPayload) {
@@ -568,24 +715,36 @@ function renderClosing(slide: PptxGenJS.Slide, payload: ClosingPayload) {
   slide.addShape("rect", {
     x: 0,
     y: 0,
-    w: 0.18,
+    w: 0.16,
     h: H,
     fill: { color: THEME.gold },
   });
   slide.addShape("ellipse", {
-    x: -1.4,
-    y: 4.8,
-    w: 4,
-    h: 4,
-    fill: { color: THEME.navy, transparency: 20 },
+    x: -1.5,
+    y: 4.85,
+    w: 4.1,
+    h: 4.1,
+    fill: { color: THEME.navy, transparency: 22 },
+  });
+  slide.addText("END", {
+    x: 0.8,
+    y: 2.05,
+    w: 11.7,
+    h: 0.32,
+    fontFace: FONT,
+    fontSize: 13,
+    color: THEME.gold,
+    align: "center",
+    charSpacing: 4,
+    margin: 0,
   });
   slide.addText(payload.message || "感谢聆听", {
     x: 0.8,
-    y: 2.55,
+    y: 2.5,
     w: 11.7,
     h: 1,
     fontFace: FONT,
-    fontSize: 48,
+    fontSize: 44,
     bold: true,
     color: THEME.white,
     align: "center",
@@ -593,18 +752,18 @@ function renderClosing(slide: PptxGenJS.Slide, payload: ClosingPayload) {
   });
   slide.addShape("rect", {
     x: 5.85,
-    y: 3.7,
+    y: 3.62,
     w: 1.6,
-    h: 0.06,
+    h: 0.055,
     fill: { color: THEME.gold },
   });
   slide.addText("Thank you", {
     x: 0.8,
-    y: 3.95,
+    y: 3.82,
     w: 11.7,
-    h: 0.4,
+    h: 0.38,
     fontFace: FONT,
-    fontSize: 16,
+    fontSize: 15,
     color: THEME.goldSoft,
     align: "center",
     charSpacing: 3,
@@ -613,9 +772,9 @@ function renderClosing(slide: PptxGenJS.Slide, payload: ClosingPayload) {
   if (payload.department) {
     slide.addText(payload.department, {
       x: 0.8,
-      y: 6.25,
+      y: 6.35,
       w: 11.7,
-      h: 0.32,
+      h: 0.3,
       fontFace: FONT,
       fontSize: 14,
       color: "8FB0CC",
@@ -634,6 +793,10 @@ export function buildPresentation(report: Report): PptxGenJS {
   pres.subject = `${report.department} ${report.title}`.trim();
   pres.company = report.department || "汇报助手";
 
+  const brand: DeckBrand = {
+    department: report.department,
+    title: report.title,
+  };
   const slides = report.slides;
   const total = slides.length;
 
@@ -642,22 +805,22 @@ export function buildPresentation(report: Report): PptxGenJS {
     const page = index + 1;
     switch (item.type) {
       case "cover":
-        renderCover(pres, slide, as<CoverPayload>(item.payload));
+        renderCover(slide, as<CoverPayload>(item.payload));
         break;
       case "toc":
-        renderToc(slide, as<TocPayload>(item.payload), page, total);
+        renderToc(slide, as<TocPayload>(item.payload), page, total, brand);
         break;
       case "part":
         renderPart(slide, as<PartPayload>(item.payload));
         break;
       case "project":
-        renderProject(slide, as<ProjectPayload>(item.payload), page, total);
+        renderProject(slide, as<ProjectPayload>(item.payload), page, total, brand);
         break;
       case "issues":
-        renderIssues(slide, as<IssuesPayload>(item.payload), page, total);
+        renderIssues(slide, as<IssuesPayload>(item.payload), page, total, brand);
         break;
       case "plan":
-        renderPlan(slide, as<PlanPayload>(item.payload), page, total);
+        renderPlan(slide, as<PlanPayload>(item.payload), page, total, brand);
         break;
       case "closing":
         renderClosing(slide, as<ClosingPayload>(item.payload));
