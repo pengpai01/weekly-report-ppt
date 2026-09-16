@@ -13,6 +13,7 @@ export const DEFAULT_PORT = 5174;
 export const TABLE_PREFIX = "wr_";
 export const REPORTS_TABLE = "wr_reports";
 export const YUNXIAO_ITEMS_TABLE = "wr_yunxiao_items";
+export const INGEST_RAW_TABLE = "wr_ingest_raw";
 /** Official Yunxiao OpenAPI host (PAT via x-yunxiao-token). */
 export const YUNXIAO_OPENAPI_BASE = "https://openapi-rdc.aliyuncs.com";
 export const DEFAULT_YUNXIAO_PROJECT_NAME = "DNK-设备软件";

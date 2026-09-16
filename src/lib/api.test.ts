@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   importYunxiaoWorkItems,
   listYunxiaoWorkItems,
+  uploadIngestFile,
   yunxiaoErrorMessage,
 } from "./api";
 
@@ -118,6 +119,23 @@ describe("yunxiao API client", () => {
     const bad = new Error("工作项不存在") as Error & { status: number };
     bad.status = 400;
     expect(yunxiaoErrorMessage(bad, "fallback")).toBe("工作项不存在");
+  });
+
+  it("uploads ingest files as multipart without forcing JSON content-type", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.body).toBeInstanceOf(FormData);
+      const headers = new Headers(init?.headers);
+      expect(headers.get("Content-Type")).toBeNull();
+      return jsonResponse(200, {
+        previewId: "p1",
+        rows: [{ row: 2, ok: true, title: "联调", status: "进行中" }],
+        summary: { total: 1, ok: 1, error: 0 },
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const preview = await uploadIngestFile(new Blob(["事项标题,状态\n联调,进行中\n"], { type: "text/csv" }), "items.csv");
+    expect(preview.previewId).toBe("p1");
+    expect(preview.summary.ok).toBe(1);
   });
 
   it("surfaces list HTTP errors from the shared request helper", async () => {

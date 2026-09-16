@@ -33,3 +33,18 @@ CREATE TABLE IF NOT EXISTS wr_yunxiao_items (
   `synced_at` DATETIME(3) NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wr_ingest_raw (
+  `id` VARCHAR(64) NOT NULL,
+  `preview_id` VARCHAR(64) NOT NULL,
+  `source` VARCHAR(32) NOT NULL DEFAULT 'upload',
+  `row_no` INT NOT NULL,
+  `payload` JSON NOT NULL,
+  `ok` TINYINT(1) NOT NULL,
+  `error` VARCHAR(512) NULL,
+  `source_id` VARCHAR(255) NULL,
+  `created_at` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_wr_ingest_raw_preview_id` (`preview_id`),
+  KEY `idx_wr_ingest_raw_source_source_id` (`source`, `source_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
