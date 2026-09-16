@@ -47,7 +47,11 @@ npm start
 | `PORT` | 监听端口，默认 `5174` |
 | `SERVICE_NAME` | 进程名，默认 `weekly-report-ppt` |
 | `DATA_DIR` | 仅日志等附属文件，必须位于项目目录内，默认 `data` |
-| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | 远程 MySQL。库使用 `grok_bot`；本应用只建/用 `wr_` 前缀表（`wr_reports`） |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | 远程 MySQL。库使用 `grok_bot`；本应用只建/用 `wr_` 前缀表（`wr_reports`、`wr_yunxiao_items`） |
+| `YUNXIAO_ORG_ID` | 云效企业 id（只读导入）。示例值仅用于文档：`62bcfcb73e81781f3ad1d7d7` |
+| `YUNXIAO_PAT` | 云效个人访问令牌，作为 `Authorization: Bearer` 调用 OpenAPI。**不要提交** |
+| `YUNXIAO_PROJECT_NAME` | 可选，默认 `DNK-设备软件` |
+| `YUNXIAO_SPACE_ID` | 可选，项目 spaceIdentifier。默认 `6230f5b04297236a20e79654d4`（DNK-设备软件 / CFRK）。有值时不再按名称搜索项目 |
 
 浏览器 `localStorage` 只作缓存；刷新或同机其它浏览器访问同一服务时以 MySQL 为准。
 
@@ -57,7 +61,24 @@ npm start
 npm test
 ```
 
-含幻灯片页序、PPTX 结构、内存 CRUD。若 `.env` 中 MySQL 可达，还会跑 `wr_reports` 集成测试。
+含幻灯片页序、PPTX 结构、内存 CRUD、云效映射与（mock OpenAPI 的）导入 HTTP。若 `.env` 中 MySQL 可达，还会跑 `wr_reports` 集成测试。
+
+### 云效只读导入
+
+从云效（devops/2021-06-25 `ListWorkitems`）按固定 `YUNXIAO_SPACE_ID` 拉取近 N 天或当前迭代的 **Task**（Bug 可选），写入 `wr_yunxiao_items` 缓存，再映射成周报草稿。不向云效回写。
+
+1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_PROJECT_NAME`）。
+2. `GET /api/yunxiao/workitems` 同步并返回缓存项。
+3. `POST /api/yunxiao/import` 用选中的 id 创建周报。
+4. `GET /api/reports/:id` 核对草稿。
+
+```bat
+curl -s "http://localhost:5174/api/yunxiao/workitems?updatedWithinDays=14"
+curl -s -X POST http://localhost:5174/api/yunxiao/import -H "Content-Type: application/json" -d "{\"itemIds\":[\"<workitem-id>\"],\"reportPartial\":{\"department\":\"软件研发\",\"title\":\"周工作总结\"}}"
+curl -s http://localhost:5174/api/reports/<id>
+```
+
+OpenAPI 基址为 `https://openapi-rdc.aliyuncs.com`，请求头 `Authorization: Bearer %YUNXIAO_PAT%`。
 
 ### 手动核对草稿持久化
 
@@ -78,9 +99,9 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 
 - 文件只出现在 `E:\grok_bot` 及其子目录（`data\`、`node_modules\`、`dist\`、`.env`）。`DATA_DIR` 若指向项目外会启动失败。
 - 独立端口（默认 5174）与服务名 `weekly-report-ppt`，不占用其它项目的端口。
-- 数据库：只连接 `.env` 指定的 `grok_bot`；迁移仅为 `CREATE TABLE IF NOT EXISTS wr_reports`。不建库、不改其它表、不碰其它 schema。
+- 数据库：只连接 `.env` 指定的 `grok_bot`；迁移仅为 `CREATE TABLE IF NOT EXISTS wr_reports` 与 `wr_yunxiao_items`。不建库、不改其它表、不碰其它 schema。
 - 依赖只安装到本项目 `node_modules`（`npm install`，不要 `-g`）。
-- **回滚**：停掉本进程；需要时可删本项目目录；SQL 只执行 `server/rollback.sql`（`DROP TABLE IF EXISTS wr_reports`）。不要 `DROP DATABASE grok_bot`。
+- **回滚**：停掉本进程；需要时可删本项目目录；SQL 只执行 `server/rollback.sql`（`DROP TABLE IF EXISTS wr_yunxiao_items` / `wr_reports`）。不要 `DROP DATABASE grok_bot`。
 
 ## 使用路径（Happy path）
 
@@ -97,13 +118,13 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 
 - Vite + React 19 + TypeScript
 - 客户端 `pptxgenjs` 生成真实 `.pptx`
-- 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`
-- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`
+- 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`
+- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`
 
 ## 二期（本 MVP 明确不做）
 
 - 年度计划时间轴 / 甘特总览页
-- 飞书文档双向同步、云效工作项拉取
+- 飞书文档双向同步
 - 团队模板、历史稿库、权限与协作批注
 - PDF 导出、一键发飞书群、分享链接
 - 解析上次 PPTX 文件导入（目前仅支持「从上次续写」本机草稿）

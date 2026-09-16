@@ -1,3 +1,11 @@
+import {
+  importYunxiaoWorkitems,
+  parseUpdatedWithinDays,
+  resolveYunxiaoClient,
+  resolveYunxiaoItemsStore,
+  syncYunxiaoWorkitems,
+} from "./yunxiao.js";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
@@ -47,20 +55,24 @@ async function parseJsonBody(req) {
   }
 }
 
-function requestPath(req) {
+function requestUrl(req) {
   const raw = req.originalUrl || req.url || "/";
   try {
-    return new URL(raw, "http://localhost").pathname.replace(/\/+$/, "") || "/";
+    return new URL(raw, "http://localhost");
   } catch {
-    return String(raw).split("?")[0].replace(/\/+$/, "") || "/";
+    return new URL(String(raw).split("?")[0] || "/", "http://localhost");
   }
 }
 
+function requestPath(req) {
+  return requestUrl(req).pathname.replace(/\/+$/, "") || "/";
+}
+
 /**
- * Route /api/* against the report store.
+ * Route /api/* against the report store (and read-only Yunxiao import).
  * @returns {Promise<boolean>} true if the request was handled
  */
-export async function routeApi(store, req, res) {
+export async function routeApi(store, req, res, deps = {}) {
   const pathname = requestPath(req);
   if (!pathname.startsWith("/api/")) return false;
 
@@ -70,6 +82,36 @@ export async function routeApi(store, req, res) {
   }
 
   try {
+    if (pathname === "/api/yunxiao/workitems") {
+      if (req.method === "GET") {
+        const days = parseUpdatedWithinDays(requestUrl(req).searchParams.get("updatedWithinDays"));
+        const client = resolveYunxiaoClient(deps);
+        const itemsStore = resolveYunxiaoItemsStore(deps);
+        send(res, 200, await syncYunxiaoWorkitems({ client, itemsStore, updatedWithinDays: days }));
+        return true;
+      }
+      send(res, 405, { error: "Method not allowed" });
+      return true;
+    }
+
+    if (pathname === "/api/yunxiao/import") {
+      if (req.method === "POST") {
+        const body = await parseJsonBody(req);
+        const itemsStore = resolveYunxiaoItemsStore(deps);
+        const report = await importYunxiaoWorkitems({
+          reportStore: store,
+          itemsStore,
+          client: deps.yunxiaoClient || null,
+          body,
+          resolveClient: () => resolveYunxiaoClient(deps),
+        });
+        send(res, 201, report);
+        return true;
+      }
+      send(res, 405, { error: "Method not allowed" });
+      return true;
+    }
+
     if (pathname === "/api/reports") {
       if (req.method === "GET") {
         send(res, 200, await store.list());
@@ -119,13 +161,13 @@ export async function routeApi(store, req, res) {
   }
 }
 
-export function createConnectApi(store) {
+export function createConnectApi(store, deps = {}) {
   return (req, res, next) => {
     const pathname = requestPath(req);
     if (!pathname.startsWith("/api/")) {
       next();
       return;
     }
-    routeApi(store, req, res).catch(next);
+    routeApi(store, req, res, deps).catch(next);
   };
 }
