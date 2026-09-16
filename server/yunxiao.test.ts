@@ -12,6 +12,7 @@ import {
   mapYunxiaoItemsToReport,
   normalizeYunxiaoWorkitem,
   parseModuleFromTitle,
+  resolveProjectName,
   toPublicYunxiaoItem,
   yunxiaoConfigFromEnv,
   normalizeProjectNameForMerge,
@@ -52,6 +53,17 @@ describe("parseModuleFromTitle", () => {
     expect(parseModuleFromTitle("联调设备协议")).toBe("其他");
     expect(parseModuleFromTitle("")).toBe("其他");
     expect(parseModuleFromTitle(null)).toBe("其他");
+  });
+});
+
+describe("resolveProjectName", () => {
+  it("prefers a non-empty module field, else first 【…】, else 其他", () => {
+    expect(resolveProjectName("联调设备协议", "设备管理")).toBe("设备管理");
+    expect(resolveProjectName("无模块事项", "【形态学】")).toBe("形态学");
+    expect(resolveProjectName("【设备管理】联调", "")).toBe("设备管理");
+    expect(resolveProjectName("前缀【ERP】报表", null)).toBe("ERP");
+    expect(resolveProjectName("联调设备协议", "")).toBe("其他");
+    expect(resolveProjectName("联调设备协议", "  ")).toBe("其他");
   });
 });
 
@@ -171,13 +183,57 @@ describe("yunxiao mapping", () => {
     ]);
   });
 
-  it("puts titles without 【】 into 其他", () => {
-    const mapped = mapYunxiaoItemsToReport([
-      item({ id: "1", title: "联调设备协议", category: "任务", status: "进行中", module: "设备管理" }),
+  it("prefers a non-empty module field, else first 【…】, else 其他", () => {
+    const withModule = mapYunxiaoItemsToReport([
+      item({
+        id: "1",
+        title: "【忽略】联调设备协议",
+        category: "任务",
+        status: "进行中",
+        module: "设备管理",
+      }),
     ]);
-    expect(mapped.projects).toHaveLength(1);
-    expect(mapped.projects[0].name).toBe("其他");
-    expect(mapped.projects[0].bullets).toEqual(["[进行中] 联调设备协议"]);
+    expect(withModule.projects).toHaveLength(1);
+    expect(withModule.projects[0].name).toBe("设备管理");
+    expect(withModule.projects[0].bullets).toEqual(["[进行中] 【忽略】联调设备协议"]);
+
+    const fromTitle = mapYunxiaoItemsToReport([
+      item({ id: "2", title: "【形态学】标注", category: "任务", status: "完成" }),
+    ]);
+    expect(fromTitle.projects[0].name).toBe("形态学");
+
+    const noModule = mapYunxiaoItemsToReport([
+      item({ id: "3", title: "联调设备协议", category: "任务", status: "进行中" }),
+    ]);
+    expect(noModule.projects[0].name).toBe("其他");
+  });
+
+  it("maps 处理中 / 已完成 into the projects bucket without a stage id", () => {
+    expect(classifyYunxiaoItem(item({ id: "p", title: "x", category: "任务", status: "处理中" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "ip", title: "x", category: "任务", status: "进行中" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "d", title: "x", category: "任务", status: "已完成" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "c", title: "x", category: "任务", status: "完成" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "cl", title: "x", category: "任务", status: "已关闭" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "dev", title: "x", category: "任务", status: "开发中" }))).toBe(
+      "projects",
+    );
+
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "动态学联调", category: "任务", status: "处理中", module: "动态学app" }),
+      item({ id: "2", title: "提测固件", category: "任务", status: "已完成", module: "设备管理" }),
+    ]);
+    expect(mapped.projects.map((p) => p.name).sort()).toEqual(["动态学app", "设备管理"]);
+    expect(mapped.nextWeek).toEqual([]);
   });
 
   it("keeps issues and nextWeek flat (not grouped by module)", () => {
@@ -610,7 +666,7 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     });
     expect(importedRes.status).toBe(201);
     const report = await importedRes.json();
-    expect(report.projects[0].name).toBe("其他");
+    expect(report.projects[0].name).toBe("补拉模块");
     expect(report.projects[0].bullets).toEqual(["[进行中] 补拉工作项"]);
     expect(calls.some((c) => c.method === "GET")).toBe(true);
     expect(calls.every((c) => c.method === "GET" || c.method === "POST")).toBe(true);

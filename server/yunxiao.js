@@ -221,7 +221,9 @@ function isBlocked(status) {
 
 function isDone(status, stage) {
   if (stage === "3") return true;
-  const text = String(status || "").trim().toLowerCase();
+  const raw = String(status || "").trim();
+  if (raw === "已完成" || raw === "完成") return true;
+  const text = raw.toLowerCase();
   if (/未完成|未关闭/.test(text)) return false;
   return /已完成|完成|已关闭|关闭|已解决|已发布|已上线|done|closed|resolved|finished|launched/.test(
     text,
@@ -229,6 +231,8 @@ function isDone(status, stage) {
 }
 
 function isInProgress(status, stage) {
+  const raw = String(status || "").trim();
+  if (raw === "进行中" || raw === "处理中") return true;
   const text = statusHaystack(status, stage);
   return (
     stage === "2" ||
@@ -269,6 +273,17 @@ export function parseModuleFromTitle(title) {
   const match = String(title || "").match(/【([^】]+)】/);
   const name = match?.[1]?.trim();
   return name || "其他";
+}
+
+/** Prefer a non-empty module field (optional upload 模块 / Yunxiao module); else first 【…】; else 其他. */
+export function resolveProjectName(title, module) {
+  const cleaned = optionalString(module);
+  if (cleaned) {
+    const only = cleaned.match(/^【([^】]+)】$/);
+    const name = (only ? only[1] : cleaned).trim();
+    if (name) return name;
+  }
+  return parseModuleFromTitle(title);
 }
 
 /** Trailing tokens stripped before comparing project names in the projects bucket. */
@@ -359,8 +374,9 @@ function projectStatusFor(items) {
 
 /**
  * Map cached Yunxiao work items into Report fields for store.create.
- * Classify by status first; only the projects bucket is grouped by 【module】
- * (then merged by suffix-strip / containment). Issues and nextWeek stay flat.
+ * Classify by status first; only the projects bucket is grouped by module name
+ * (prefer item.module, else first 【…】 in title, else 其他; then merged by
+ * suffix-strip / containment). Issues and nextWeek stay flat.
  * @param {object[]} items
  * @param {object} [reportPartial]
  * @param {object} [options]
@@ -386,7 +402,7 @@ export function mapYunxiaoItemsToReport(items, reportPartial = {}, options = {})
       nextWeekItems.push(item.title || item.id);
       continue;
     }
-    const name = parseModuleFromTitle(item.title);
+    const name = resolveProjectName(item.title, item.module);
     if (!projectsByModule.has(name)) projectsByModule.set(name, []);
     projectsByModule.get(name).push(item);
   }
