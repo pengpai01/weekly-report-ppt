@@ -595,6 +595,56 @@ a { color: inherit; }
   padding: 22px;
   box-shadow: var(--shadow);
 }
+.modal.yunxiao-modal {
+  width: min(840px, calc(100% - 32px));
+  max-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+}
+.modal.yunxiao-modal h3 { margin: 0 0 6px; }
+.workitem-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.workitem-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.workitem-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  min-height: 120px;
+  max-height: 420px;
+  padding-right: 4px;
+}
+.workitem-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  background: #fff;
+}
+.workitem-row.selected {
+  border-color: var(--blue);
+  background: var(--pale);
+}
+.workitem-row h3 { margin: 0 0 6px; font-size: 14px; }
+.workitem-row p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.workitem-row input { margin-top: 3px; }
+.workitem-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .progress-card {
   width: min(420px, calc(100% - 32px));
   background: #fff;

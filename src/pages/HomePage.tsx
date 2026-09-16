@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
+import { YunxiaoImportModal } from "../components/YunxiaoImportModal";
+import { yunxiaoErrorMessage } from "../lib/api";
 import { continueFrom } from "../lib/report";
 import { STATUS_LABEL } from "../lib/report";
 import { useReports } from "../store";
 
 export function HomePage() {
-  const { reports, create, remove, ready, error } = useReports();
+  const { reports, create, remove, ready, error, importFromYunxiao } = useReports();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const sorted = [...reports].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const startNew = async () => {
@@ -48,6 +51,19 @@ export function HomePage() {
     }
   };
 
+  const importSelected = async (itemIds: string[]) => {
+    setBusy(true);
+    try {
+      const report = await importFromYunxiao(itemIds);
+      setImportOpen(false);
+      navigate(`/reports/${report.id}/meta`);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <AppHeader />
@@ -66,6 +82,9 @@ export function HomePage() {
             </button>
             <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => void continueLast()}>
               从上次续写
+            </button>
+            <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => setImportOpen(true)}>
+              从云效导入
             </button>
           </div>
         </section>
@@ -114,6 +133,12 @@ export function HomePage() {
           </div>
         )}
       </div>
+      <YunxiaoImportModal
+        open={importOpen}
+        busy={busy}
+        onClose={() => setImportOpen(false)}
+        onImport={importSelected}
+      />
     </>
   );
 }

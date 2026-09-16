@@ -15,6 +15,7 @@ import {
   createReportOnServer,
   deleteReportOnServer,
   getReport as fetchReport,
+  importYunxiaoWorkItems,
   listReports,
   updateReportOnServer,
 } from "./lib/api";
@@ -66,6 +67,7 @@ interface StoreValue {
   patch: (id: string, updater: (report: Report) => Report) => Report | undefined;
   remove: (id: string) => Promise<void>;
   create: (partial?: Partial<Report>) => Promise<Report>;
+  importFromYunxiao: (itemIds: string[], reportPartial?: Partial<Report>) => Promise<Report>;
   saveNow: (id?: string) => Promise<void>;
 }
 
@@ -251,6 +253,27 @@ export function ReportProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
+  const importFromYunxiao = useCallback(
+    async (itemIds: string[], reportPartial?: Partial<Report>) => {
+      const saved = await importYunxiaoWorkItems(itemIds, reportPartial);
+      if (!saved?.id) {
+        throw new Error("导入成功但未返回草稿编号。");
+      }
+      const report = {
+        ...saved,
+        projects: saved.projects ?? [],
+        issues: saved.issues ?? { empty: true, items: [] },
+        nextWeek: saved.nextWeek ?? [],
+        slides: saved.slides ?? [],
+        status: saved.status ?? "draft",
+      };
+      commit([report, ...reportsRef.current.filter((r) => r.id !== report.id)]);
+      setError(null);
+      return report;
+    },
+    [commit],
+  );
+
   const value = useMemo(
     () => ({
       reports,
@@ -262,9 +285,22 @@ export function ReportProvider({ children }: { children: ReactNode }) {
       patch,
       remove,
       create,
+      importFromYunxiao,
       saveNow,
     }),
-    [reports, ready, error, getReport, loadById, upsert, patch, remove, create, saveNow],
+    [
+      reports,
+      ready,
+      error,
+      getReport,
+      loadById,
+      upsert,
+      patch,
+      remove,
+      create,
+      importFromYunxiao,
+      saveNow,
+    ],
   );
 
   return createElement(StoreContext.Provider, { value }, children);

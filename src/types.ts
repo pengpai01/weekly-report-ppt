@@ -104,6 +104,21 @@ export interface Report {
   updatedAt: string;
 }
 
+export interface YunxiaoWorkItem {
+  id: string;
+  title: string;
+  category: string;
+  status: string;
+  module?: string;
+  assignee?: string;
+  updatedAt: string;
+  sprint?: string;
+}
+
+export interface YunxiaoWorkItemList {
+  items: YunxiaoWorkItem[];
+}
+
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   in_progress: "进行中",
   launched: "已上线",
