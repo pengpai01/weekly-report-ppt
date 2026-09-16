@@ -12,6 +12,7 @@ import {
 import type { Report } from "./types";
 import { createReport } from "./lib/report";
 import {
+  confirmIngestPreview,
   createReportOnServer,
   deleteReportOnServer,
   getReport as fetchReport,
@@ -68,6 +69,7 @@ interface StoreValue {
   remove: (id: string) => Promise<void>;
   create: (partial?: Partial<Report>) => Promise<Report>;
   importFromYunxiao: (itemIds: string[], reportPartial?: Partial<Report>) => Promise<Report>;
+  importFromUpload: (previewId: string, reportPartial?: Partial<Report>) => Promise<Report>;
   saveNow: (id?: string) => Promise<void>;
 }
 
@@ -253,13 +255,12 @@ export function ReportProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
-  const importFromYunxiao = useCallback(
-    async (itemIds: string[], reportPartial?: Partial<Report>) => {
-      const saved = await importYunxiaoWorkItems(itemIds, reportPartial);
+  const commitImported = useCallback(
+    (saved: Report) => {
       if (!saved?.id) {
         throw new Error("导入成功但未返回草稿编号。");
       }
-      const report = {
+      const report: Report = {
         ...saved,
         projects: saved.projects ?? [],
         issues: saved.issues ?? { empty: true, items: [] },
@@ -274,6 +275,22 @@ export function ReportProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
+  const importFromYunxiao = useCallback(
+    async (itemIds: string[], reportPartial?: Partial<Report>) => {
+      const saved = await importYunxiaoWorkItems(itemIds, reportPartial);
+      return commitImported(saved);
+    },
+    [commitImported],
+  );
+
+  const importFromUpload = useCallback(
+    async (previewId: string, reportPartial?: Partial<Report>) => {
+      const saved = await confirmIngestPreview(previewId, reportPartial);
+      return commitImported(saved);
+    },
+    [commitImported],
+  );
+
   const value = useMemo(
     () => ({
       reports,
@@ -286,6 +303,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
       remove,
       create,
       importFromYunxiao,
+      importFromUpload,
       saveNow,
     }),
     [
@@ -299,6 +317,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
       remove,
       create,
       importFromYunxiao,
+      importFromUpload,
       saveNow,
     ],
   );

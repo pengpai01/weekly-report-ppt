@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
+import { IngestUploadModal } from "../components/IngestUploadModal";
 import { YunxiaoImportModal } from "../components/YunxiaoImportModal";
-import { yunxiaoErrorMessage } from "../lib/api";
+import { ingestErrorMessage, yunxiaoErrorMessage } from "../lib/api";
 import { continueFrom } from "../lib/report";
 import { STATUS_LABEL } from "../lib/report";
 import { useReports } from "../store";
 
 export function HomePage() {
-  const { reports, create, remove, ready, error, importFromYunxiao } = useReports();
+  const { reports, create, remove, ready, error, importFromYunxiao, importFromUpload } = useReports();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const sorted = [...reports].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const startNew = async () => {
@@ -51,24 +53,38 @@ export function HomePage() {
     }
   };
 
+  const lastPartial = () => {
+    const last = sorted[0];
+    return last
+      ? {
+          department: last.department,
+          author: last.author,
+          templateType: last.templateType,
+        }
+      : undefined;
+  };
+
   const importSelected = async (itemIds: string[]) => {
     setBusy(true);
     try {
-      const last = sorted[0];
-      const report = await importFromYunxiao(
-        itemIds,
-        last
-          ? {
-              department: last.department,
-              author: last.author,
-              templateType: last.templateType,
-            }
-          : undefined,
-      );
+      const report = await importFromYunxiao(itemIds, lastPartial());
       setImportOpen(false);
       navigate(`/reports/${report.id}/meta`);
     } catch (err) {
       throw err instanceof Error ? err : new Error(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmUpload = async (previewId: string) => {
+    setBusy(true);
+    try {
+      const report = await importFromUpload(previewId, lastPartial());
+      setUploadOpen(false);
+      navigate(`/reports/${report.id}/meta`);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
     } finally {
       setBusy(false);
     }
@@ -95,6 +111,9 @@ export function HomePage() {
             </button>
             <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => setImportOpen(true)}>
               从云效导入
+            </button>
+            <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => setUploadOpen(true)}>
+              上传表格导入
             </button>
           </div>
         </section>
@@ -148,6 +167,12 @@ export function HomePage() {
         busy={busy}
         onClose={() => setImportOpen(false)}
         onImport={importSelected}
+      />
+      <IngestUploadModal
+        open={uploadOpen}
+        busy={busy}
+        onClose={() => setUploadOpen(false)}
+        onConfirm={confirmUpload}
       />
     </>
   );

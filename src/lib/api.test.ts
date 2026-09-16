@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cancelIngestPreview,
+  confirmIngestPreview,
   importYunxiaoWorkItems,
+  ingestErrorMessage,
   listYunxiaoWorkItems,
   uploadIngestFile,
   yunxiaoErrorMessage,
@@ -144,5 +147,60 @@ describe("yunxiao API client", () => {
       message: "Not found",
       status: 404,
     });
+  });
+});
+
+describe("ingest API client", () => {
+  it("confirms a previewId and optional reportPartial", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/ingest/confirm");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        previewId: "p1",
+        reportPartial: { department: "研发" },
+      });
+      return jsonResponse(201, { id: "rep-upload", title: "周工作总结" });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const report = await confirmIngestPreview("p1", { department: "研发" });
+    expect(report.id).toBe("rep-upload");
+  });
+
+  it("cancels a preview with JSON previewId", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/ingest/cancel");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ previewId: "p1" });
+      return new Response(null, { status: 204 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await expect(cancelIngestPreview("p1")).resolves.toBeUndefined();
+  });
+
+  it("maps ingest 4xx/5xx failures to Chinese messages", () => {
+    expect(ingestErrorMessage(new TypeError("Failed to fetch"), "fallback")).toBe(
+      "无法连接本机服务，请确认服务已启动后再试。",
+    );
+    const wrongType = new Error("File must be .xlsx or .csv") as Error & { status: number };
+    wrongType.status = 400;
+    expect(ingestErrorMessage(wrongType, "fallback")).toBe("请上传 .xlsx 或 .csv 文件。");
+    const missingCols = new Error("Missing required columns: 事项标题, 状态") as Error & { status: number };
+    missingCols.status = 400;
+    expect(ingestErrorMessage(missingCols, "fallback")).toBe("缺少必填列：事项标题、状态。");
+    const expired = new Error("Preview not found") as Error & { status: number };
+    expired.status = 404;
+    expect(ingestErrorMessage(expired, "fallback")).toBe("预览已过期或不存在，请重新上传。");
+    const down = new Error("Not found") as Error & { status: number };
+    down.status = 404;
+    expect(ingestErrorMessage(down, "fallback")).toBe("表格上传服务暂不可用（接口未就绪或已下线）。");
+    const boom = new Error("Server error") as Error & { status: number };
+    boom.status = 500;
+    expect(ingestErrorMessage(boom, "fallback")).toBe("服务异常（500），请稍后重试。");
+    const unknown400 = new Error("something broke") as Error & { status: number };
+    unknown400.status = 400;
+    expect(ingestErrorMessage(unknown400, "fallback")).toBe("请求失败（400），请检查文件后重试。");
+    const alreadyZh = new Error("文件没有数据行。") as Error & { status: number };
+    alreadyZh.status = 400;
+    expect(ingestErrorMessage(alreadyZh, "fallback")).toBe("文件没有数据行。");
   });
 });
