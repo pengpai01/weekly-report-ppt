@@ -140,6 +140,7 @@ describe("ingest confirm mapping", () => {
           "联调设备协议,进行中,设备管理,张三,与硬件联调,,dev-1",
           "提测固件,已完成,设备管理,,,,dev-2",
           "动态学联调,处理中,动态学app,,,,dyn-1",
+          "发布版本,完成,设备管理,,,,dev-3",
           "形态学标注,Done,,,无模块完成,,",
           "登录失败,Bug,设备管理,,,,bug-1",
           "供应链卡住,已阻塞,ERP,,,,blk-1",
@@ -157,6 +158,7 @@ describe("ingest confirm mapping", () => {
     expect(device?.bullets).toEqual([
       "[进行中·张三] 联调设备协议\n与硬件联调",
       "[已完成] 提测固件",
+      "[完成] 发布版本",
     ]);
     expect(device?.status).toBe("in_progress");
     expect(dyn?.bullets).toEqual(["[处理中] 动态学联调"]);
@@ -221,6 +223,26 @@ describe("ingest confirm mapping", () => {
   });
 });
 
+async function uploadAndConfirm(base: string, csvBody: string) {
+  const uploadRes = await fetch(`${base}/api/ingest/upload`, {
+    method: "POST",
+    body: csvFile(csvBody),
+  });
+  expect(uploadRes.status).toBe(200);
+  const preview = await uploadRes.json();
+  const confirmRes = await fetch(`${base}/api/ingest/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ previewId: preview.previewId }),
+  });
+  expect(confirmRes.status).toBe(201);
+  return confirmRes.json() as Promise<{
+    projects: Array<{ name: string; bullets: string[]; status?: string }>;
+    issues: { empty: boolean; items: Array<{ text: string }> };
+    nextWeek: Array<{ projectName: string; items: string[] }>;
+  }>;
+}
+
 describe("ingest HTTP API", () => {
   it("uploads CSV, previews error rows, confirms mapping into a report, and skips error rows", async () => {
     const { base, store, ingestStore } = await startApi();
@@ -276,6 +298,58 @@ describe("ingest HTTP API", () => {
       body: JSON.stringify({ previewId: preview.previewId }),
     });
     expect(again.status).toBe(404);
+  });
+
+  it("QA gate: five upload cases lock 模块 / 【】 / 其他 and 处理中/已完成/进行中/完成 → projects", async () => {
+    const { base } = await startApi();
+    const report = await uploadAndConfirm(
+      base,
+      [
+        "事项标题,状态,模块",
+        "处理中联调,处理中,设备管理",
+        "已完成提测,已完成,设备管理",
+        "【形态学】标注,进行中,",
+        "无模块事项,完成,",
+        "【忽略】动态学联调,处理中,动态学app",
+      ].join("\n"),
+    );
+    expect(report.issues.empty).toBe(true);
+    expect(report.nextWeek).toEqual([]);
+    expect(report.projects.map((p) => p.name).sort()).toEqual(
+      ["动态学app", "其他", "形态学", "设备管理"].sort(),
+    );
+    const device = report.projects.find((p) => p.name === "设备管理");
+    expect(device?.bullets).toEqual(["[处理中] 处理中联调", "[已完成] 已完成提测"]);
+    expect(report.projects.find((p) => p.name === "形态学")?.bullets).toEqual(["[进行中] 标注"]);
+    expect(report.projects.find((p) => p.name === "其他")?.bullets).toEqual(["[完成] 无模块事项"]);
+    expect(report.projects.find((p) => p.name === "动态学app")?.bullets).toEqual([
+      "[处理中] 【忽略】动态学联调",
+    ]);
+  });
+
+  it("QA gate: merge sample keeps the longer formal name", async () => {
+    const { base } = await startApi();
+    const report = await uploadAndConfirm(
+      base,
+      [
+        "事项标题,状态,模块",
+        "短名联调,处理中,设备",
+        "长名提测,已完成,设备管理",
+        "形态学标注,处理中,形态学",
+        "形态学提测,已完成,形态学鉴定APP",
+      ].join("\n"),
+    );
+    expect(report.projects).toHaveLength(2);
+    expect(report.projects.map((p) => p.name).sort()).toEqual(["形态学鉴定APP", "设备管理"].sort());
+    expect(report.projects.find((p) => p.name === "设备管理")?.bullets).toEqual([
+      "[处理中] 短名联调",
+      "[已完成] 长名提测",
+    ]);
+    expect(report.projects.find((p) => p.name === "形态学鉴定APP")?.bullets).toEqual([
+      "[处理中] 形态学标注",
+      "[已完成] 形态学提测",
+    ]);
+    expect(report.nextWeek).toEqual([]);
   });
 
   it("parses xlsx the same way as csv", async () => {

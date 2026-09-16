@@ -221,7 +221,9 @@ function isBlocked(status) {
 
 function isDone(status, stage) {
   if (stage === "3") return true;
-  const text = String(status || "").trim().toLowerCase();
+  const raw = String(status || "").trim();
+  if (raw === "已完成" || raw === "完成") return true;
+  const text = raw.toLowerCase();
   if (/未完成|未关闭/.test(text)) return false;
   return /已完成|完成|已关闭|关闭|已解决|已发布|已上线|done|closed|resolved|finished|launched/.test(
     text,
@@ -229,6 +231,8 @@ function isDone(status, stage) {
 }
 
 function isInProgress(status, stage) {
+  const raw = String(status || "").trim();
+  if (raw === "进行中" || raw === "处理中") return true;
   const text = statusHaystack(status, stage);
   return (
     stage === "2" ||

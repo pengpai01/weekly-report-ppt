@@ -183,22 +183,36 @@ describe("yunxiao mapping", () => {
     ]);
   });
 
-  it("prefers item.module over title 【】 and falls back to 其他", () => {
+  it("prefers a non-empty module field, else first 【…】, else 其他", () => {
     const withModule = mapYunxiaoItemsToReport([
-      item({ id: "1", title: "联调设备协议", category: "任务", status: "进行中", module: "设备管理" }),
+      item({
+        id: "1",
+        title: "【忽略】联调设备协议",
+        category: "任务",
+        status: "进行中",
+        module: "设备管理",
+      }),
     ]);
     expect(withModule.projects).toHaveLength(1);
     expect(withModule.projects[0].name).toBe("设备管理");
-    expect(withModule.projects[0].bullets).toEqual(["[进行中] 联调设备协议"]);
+    expect(withModule.projects[0].bullets).toEqual(["[进行中] 【忽略】联调设备协议"]);
+
+    const fromTitle = mapYunxiaoItemsToReport([
+      item({ id: "2", title: "【形态学】标注", category: "任务", status: "完成" }),
+    ]);
+    expect(fromTitle.projects[0].name).toBe("形态学");
 
     const noModule = mapYunxiaoItemsToReport([
-      item({ id: "2", title: "联调设备协议", category: "任务", status: "进行中" }),
+      item({ id: "3", title: "联调设备协议", category: "任务", status: "进行中" }),
     ]);
     expect(noModule.projects[0].name).toBe("其他");
   });
 
   it("maps 处理中 / 已完成 into the projects bucket without a stage id", () => {
     expect(classifyYunxiaoItem(item({ id: "p", title: "x", category: "任务", status: "处理中" }))).toBe(
+      "projects",
+    );
+    expect(classifyYunxiaoItem(item({ id: "ip", title: "x", category: "任务", status: "进行中" }))).toBe(
       "projects",
     );
     expect(classifyYunxiaoItem(item({ id: "d", title: "x", category: "任务", status: "已完成" }))).toBe(
