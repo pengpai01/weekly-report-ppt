@@ -1,4 +1,6 @@
-import type { Report } from "../types";
+import type { Report, YunxiaoWorkItemList } from "../types";
+
+type ApiError = Error & { status?: number };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -13,11 +15,50 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const message =
       typeof body?.error === "string" ? body.error : `请求失败（${res.status}）`;
-    const error = new Error(message) as Error & { status: number };
+    const error = new Error(message) as ApiError;
     error.status = res.status;
     throw error;
   }
   return body as T;
+}
+
+export function yunxiaoErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.name === "AbortError") return fallback;
+  if (err instanceof TypeError) {
+    return "无法连接本机服务，请确认服务已启动后再试。";
+  }
+  const status = err instanceof Error ? (err as ApiError).status : undefined;
+  const message = err instanceof Error ? err.message.trim() : "";
+
+  if (status === 404 && (!message || /^not found$/i.test(message))) {
+    return "云效导入服务暂不可用（接口未就绪或已下线）。";
+  }
+  if (status === 401 || status === 403) {
+    return "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。";
+  }
+  if (status === 502 && /authentication failed/i.test(message)) {
+    return "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。";
+  }
+  if (status === 500 && /YUNXIAO_/i.test(message)) {
+    return "请在项目 .env 填写 YUNXIAO_ORG_ID 和 YUNXIAO_PAT 后重启服务。";
+  }
+  if (message) return message;
+  return fallback;
+}
+
+export function listYunxiaoWorkItems(updatedWithinDays = 14, init?: RequestInit) {
+  const query = new URLSearchParams({ updatedWithinDays: String(updatedWithinDays) });
+  return request<YunxiaoWorkItemList>(`/api/yunxiao/workitems?${query}`, init);
+}
+
+export function importYunxiaoWorkItems(itemIds: string[], reportPartial?: Partial<Report>) {
+  return request<Report>("/api/yunxiao/import", {
+    method: "POST",
+    body: JSON.stringify({
+      itemIds,
+      ...(reportPartial ? { reportPartial } : {}),
+    }),
+  });
 }
 
 export function listReports() {
