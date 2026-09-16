@@ -12,6 +12,11 @@ export const SERVICE_NAME = process.env.SERVICE_NAME || "weekly-report-ppt";
 export const DEFAULT_PORT = 5174;
 export const TABLE_PREFIX = "wr_";
 export const REPORTS_TABLE = "wr_reports";
+export const YUNXIAO_ITEMS_TABLE = "wr_yunxiao_items";
+/** Official devops/2021-06-25 OpenAPI host for PAT Bearer calls. */
+export const YUNXIAO_OPENAPI_BASE = "https://openapi-rdc.aliyuncs.com";
+export const DEFAULT_YUNXIAO_PROJECT_NAME = "DNK-设备软件";
+export const DEFAULT_YUNXIAO_UPDATED_WITHIN_DAYS = 14;
 
 export function assertInsideProject(target, label = "path") {
   const resolved = resolve(target);
@@ -38,6 +43,29 @@ export function listenPort(explicit) {
     throw new Error(`Invalid PORT: ${raw}`);
   }
   return port;
+}
+
+export function yunxiaoConfigFromEnv(source = process.env) {
+  const orgId = source.YUNXIAO_ORG_ID?.trim() ?? "";
+  const pat = source.YUNXIAO_PAT?.trim() ?? "";
+  const projectName =
+    source.YUNXIAO_PROJECT_NAME?.trim() || DEFAULT_YUNXIAO_PROJECT_NAME;
+  const missing = [];
+  if (!orgId) missing.push("YUNXIAO_ORG_ID");
+  if (!pat) missing.push("YUNXIAO_PAT");
+  if (missing.length) {
+    const error = new Error(
+      `Missing Yunxiao config: ${missing.join(", ")}. Copy .env.example to .env and set the values. Do not commit secrets.`,
+    );
+    error.status = 500;
+    throw error;
+  }
+  return {
+    orgId,
+    pat,
+    projectName,
+    baseUrl: YUNXIAO_OPENAPI_BASE,
+  };
 }
 
 export function mysqlConfigFromEnv() {

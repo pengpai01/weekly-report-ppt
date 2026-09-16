@@ -19,3 +19,17 @@ CREATE TABLE IF NOT EXISTS wr_reports (
   PRIMARY KEY (`id`),
   KEY `idx_wr_reports_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wr_yunxiao_items (
+  `id` VARCHAR(64) NOT NULL,
+  `title` VARCHAR(512) NULL,
+  `category` VARCHAR(32) NULL,
+  `status` VARCHAR(64) NULL,
+  `module` VARCHAR(255) NULL,
+  `assignee` VARCHAR(255) NULL,
+  `sprint` VARCHAR(255) NULL,
+  `updated_at` DATETIME(3) NULL,
+  `raw_json` JSON NULL,
+  `synced_at` DATETIME(3) NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

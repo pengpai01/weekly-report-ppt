@@ -7,6 +7,7 @@ import {
   REPORTS_TABLE,
   TABLE_PREFIX,
 } from "./config.js";
+import { ensureYunxiaoItemsTable } from "./yunxiao.js";
 
 export { defaultDataDir, REPORTS_TABLE, TABLE_PREFIX };
 
@@ -152,6 +153,7 @@ function httpError(status, message) {
 
 export async function ensureOwnTables(pool) {
   await pool.query(CREATE_TABLE_SQL);
+  await ensureYunxiaoItemsTable(pool);
 }
 
 export function createReportStore(options = {}) {
