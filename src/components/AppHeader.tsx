@@ -8,7 +8,7 @@ export function AppHeader({ right }: { right?: ReactNode }) {
         <span className="brand-mark">报</span>
         汇报助手
       </Link>
-      {right ?? <div className="header-note">草稿仅保存在本机浏览器</div>}
+      {right ?? <div className="header-note">草稿保存在本机服务，刷新后可继续</div>}
     </header>
   );
 }

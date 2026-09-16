@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader, Stepper } from "../components/AppHeader";
+import { ReportGate } from "../components/ReportGate";
 import { generateSlides, duplicateProjectNames } from "../lib/generateSlides";
 import { canGenerate, emptyPlanRow, emptyProject } from "../lib/report";
 import {
@@ -17,9 +18,14 @@ type Tab = "projects" | "issues" | "plan";
 
 export function MaterialsPage() {
   const { id } = useParams();
-  const { getReport, patch } = useReports();
+  return (
+    <ReportGate id={id}>{(report) => <MaterialsForm report={report} />}</ReportGate>
+  );
+}
+
+function MaterialsForm({ report }: { report: Report }) {
+  const { patch, saveNow } = useReports();
   const navigate = useNavigate();
-  const report = id ? getReport(id) : undefined;
   const [tab, setTab] = useState<Tab>("projects");
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -28,18 +34,9 @@ export function MaterialsPage() {
   const [splitPreview, setSplitPreview] = useState<Project[] | null>(null);
 
   const dupes = useMemo(
-    () => (report ? duplicateProjectNames(report.projects) : []),
+    () => duplicateProjectNames(report.projects),
     [report],
   );
-
-  if (!report) {
-    return (
-      <>
-        <AppHeader />
-        <div className="page"><div className="panel">找不到这份草稿。</div></div>
-      </>
-    );
-  }
 
   const update = (updater: (r: Report) => Report) => patch(report.id, updater);
 
@@ -67,7 +64,7 @@ export function MaterialsPage() {
         slides: generateSlides(r),
         status: "generated",
       }));
-      navigate(`/reports/${report.id}/preview`);
+      void saveNow(report.id).then(() => navigate(`/reports/${report.id}/preview`));
     }, 900);
   };
 
