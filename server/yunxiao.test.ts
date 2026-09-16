@@ -11,6 +11,7 @@ import {
   createMemoryYunxiaoItemStore,
   mapYunxiaoItemsToReport,
   normalizeYunxiaoWorkitem,
+  parseModuleFromTitle,
   toPublicYunxiaoItem,
   yunxiaoConfigFromEnv,
 } from "./yunxiao.js";
@@ -29,6 +30,7 @@ type YunxiaoItemLike = {
   category: string;
   status: string;
   module?: string | null;
+  assignee?: string | null;
   statusStageIdentifier?: string | null;
   updatedAt?: string;
   raw?: { statusStageIdentifier?: string };
@@ -38,31 +40,41 @@ function item(partial: YunxiaoItemLike) {
   return { updatedAt: new Date().toISOString(), ...partial };
 }
 
+describe("parseModuleFromTitle", () => {
+  it("uses the first 【…】 and falls back to 其他", () => {
+    expect(parseModuleFromTitle("【设备管理】联调")).toBe("设备管理");
+    expect(parseModuleFromTitle("前缀【ERP】再【忽略】")).toBe("ERP");
+    expect(parseModuleFromTitle("【 形态学鉴定APP 】标注")).toBe("形态学鉴定APP");
+    expect(parseModuleFromTitle("【】空括号")).toBe("其他");
+    expect(parseModuleFromTitle("联调设备协议")).toBe("其他");
+    expect(parseModuleFromTitle("")).toBe("其他");
+    expect(parseModuleFromTitle(null)).toBe("其他");
+  });
+});
+
 describe("yunxiao mapping", () => {
-  it("sends in-progress and done Req/Task into projects grouped by module", () => {
+  it("groups in-progress/done items into projects by the first 【module】", () => {
     const mapped = mapYunxiaoItemsToReport([
       item({
         id: "1",
-        title: "联调设备协议",
-        category: "Req",
+        title: "【设备管理】联调设备协议",
+        category: "任务",
         status: "进行中",
-        module: "设备管理",
+        assignee: "张三",
         statusStageIdentifier: "2",
       }),
       item({
         id: "2",
-        title: "提测固件",
-        category: "Task",
+        title: "【设备管理】提测固件",
+        category: "任务",
         status: "已完成",
-        module: "设备管理",
         statusStageIdentifier: "3",
       }),
       item({
         id: "3",
-        title: "形态学标注",
-        category: "Req",
-        status: "Done",
-        module: "形态学鉴定APP",
+        title: "【形态学鉴定APP】形态学标注",
+        category: "任务",
+        status: "已完成",
       }),
     ]);
     expect(mapped.projects).toHaveLength(2);
@@ -70,15 +82,37 @@ describe("yunxiao mapping", () => {
     const app = mapped.projects.find((p) => p.name === "形态学鉴定APP");
     expect(device).toBeTruthy();
     expect(app).toBeTruthy();
-    expect(device?.bullets).toEqual(["联调设备协议", "提测固件"]);
+    expect(device?.bullets).toEqual([
+      "[进行中·张三] 【设备管理】联调设备协议",
+      "[已完成] 【设备管理】提测固件",
+    ]);
     expect(device?.status).toBe("in_progress");
-    expect(app?.bullets).toEqual(["形态学标注"]);
+    expect(app?.bullets).toEqual(["[已完成] 【形态学鉴定APP】形态学标注"]);
     expect(app?.status).toBe("launched");
     expect(mapped.issues.empty).toBe(true);
     expect(mapped.nextWeek).toEqual([]);
   });
 
-  it("maps blocked items and Bugs to issues, planned/unfinished to nextWeek", () => {
+  it("merges the same 【module】 into one projects entry", () => {
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "【ERP】接口联调", category: "任务", status: "进行中" }),
+      item({ id: "2", title: "前缀【ERP】报表上线", category: "任务", status: "已完成" }),
+    ]);
+    expect(mapped.projects).toHaveLength(1);
+    expect(mapped.projects[0].name).toBe("ERP");
+    expect(mapped.projects[0].bullets).toHaveLength(2);
+  });
+
+  it("puts titles without 【】 into 其他", () => {
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "联调设备协议", category: "任务", status: "进行中", module: "设备管理" }),
+    ]);
+    expect(mapped.projects).toHaveLength(1);
+    expect(mapped.projects[0].name).toBe("其他");
+    expect(mapped.projects[0].bullets).toEqual(["[进行中] 联调设备协议"]);
+  });
+
+  it("keeps issues and nextWeek flat (not grouped by module)", () => {
     expect(classifyYunxiaoItem(item({ id: "b", title: "x", category: "缺陷", status: "进行中" }))).toBe(
       "issues",
     );
@@ -93,31 +127,34 @@ describe("yunxiao mapping", () => {
     );
 
     const mapped = mapYunxiaoItemsToReport([
-      item({ id: "bug1", title: "登录失败", category: "缺陷", status: "待处理" }),
-      item({ id: "blk", title: "供应链卡住", category: "任务", status: "已阻塞", module: "ERP" }),
-      item({ id: "plan", title: "下周联调", category: "任务", status: "待处理", module: "设备管理" }),
+      item({ id: "bug1", title: "【登录】登录失败", category: "缺陷", status: "待处理" }),
+      item({ id: "blk", title: "【ERP】供应链卡住", category: "任务", status: "已阻塞" }),
+      item({ id: "plan1", title: "【设备管理】下周联调", category: "任务", status: "待处理" }),
+      item({ id: "plan2", title: "【形态学】下周标注", category: "任务", status: "待处理" }),
       item({ id: "skip", title: "作废需求", category: "任务", status: "已取消" }),
     ]);
     expect(mapped.issues.empty).toBe(false);
     expect(mapped.issues.items.map((i: { text: string }) => i.text)).toEqual([
-      "登录失败",
-      "供应链卡住",
+      "【登录】登录失败",
+      "【ERP】供应链卡住",
     ]);
-    expect(mapped.nextWeek).toEqual([
-      expect.objectContaining({ projectName: "设备管理", items: ["下周联调"] }),
+    expect(mapped.nextWeek.map((row) => row.projectName)).toEqual(["", ""]);
+    expect(mapped.nextWeek.map((row) => row.items)).toEqual([
+      ["【设备管理】下周联调"],
+      ["【形态学】下周标注"],
     ]);
     expect(mapped.projects).toEqual([]);
   });
 
   it("lets reportPartial overlay mapped fields without dropping the mapping defaults", () => {
     const mapped = mapYunxiaoItemsToReport(
-      [item({ id: "1", title: "联调", category: "Req", status: "进行中", module: "设备" })],
+      [item({ id: "1", title: "【设备】联调", category: "任务", status: "进行中" })],
       { title: "研发周报", department: "软件研发", templateType: "weekly" },
     );
     expect(mapped.title).toBe("研发周报");
     expect(mapped.department).toBe("软件研发");
     expect(mapped.projects[0].name).toBe("设备");
-    expect(mapped.projects[0].bullets).toEqual(["联调"]);
+    expect(mapped.projects[0].bullets).toEqual(["[进行中] 【设备】联调"]);
   });
 });
 
@@ -213,7 +250,7 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]>;
     Task: [
       {
         id: "task-progress",
-        subject: "设备协议联调",
+        subject: "【设备管理】设备协议联调",
         workitemType: { name: "任务" },
         status: { name: "进行中", statusStageIdentifier: "2" },
         assignedTo: { name: "张三" },
@@ -232,7 +269,7 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]>;
       },
       {
         id: "task-done",
-        subject: "提测固件",
+        subject: "【设备管理】提测固件",
         workitemType: { name: "任务" },
         status: { name: "已完成", statusStageIdentifier: "3" },
         assignedTo: { name: "李四" },
@@ -398,7 +435,7 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(ids).not.toContain("task-old");
     const progress = body.items.find((row: { id: string }) => row.id === "task-progress");
     expect(progress).toMatchObject({
-      title: "设备协议联调",
+      title: "【设备管理】设备协议联调",
       category: "任务",
       status: "进行中",
       assignee: "张三",
@@ -429,7 +466,7 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(calls.map((c) => new URL(c.url).pathname)).not.toContain(`/organization/${ORG}/listWorkitems`);
 
     const cached = await itemsStore.getMany(["task-progress"]);
-    expect(cached[0]?.title).toBe("设备协议联调");
+    expect(cached[0]?.title).toBe("【设备管理】设备协议联调");
     expect(cached[0]?.assignee).toBe("张三");
   });
 
@@ -471,11 +508,16 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(report.title).toBe("云效导入周报");
     expect(report.department).toBe("软件研发");
     expect(report.status).toBe("draft");
-    expect(report.projects.some((p: { name: string }) => p.name === "设备管理")).toBe(true);
+    expect(report.projects.map((p: { name: string }) => p.name)).toEqual(["设备管理"]);
+    expect(report.projects[0].bullets).toEqual([
+      "[进行中·张三] 【设备管理】设备协议联调",
+      "[已完成·李四] 【设备管理】提测固件",
+    ]);
     expect(report.issues.empty).toBe(false);
-    expect(report.nextWeek.some((row: { items: string[] }) => row.items.includes("下周压测"))).toBe(
-      true,
-    );
+    expect(report.issues.items.map((i: { text: string }) => i.text)).toEqual(["登录失败"]);
+    expect(report.nextWeek).toHaveLength(1);
+    expect(report.nextWeek[0].projectName).toBe("");
+    expect(report.nextWeek[0].items).toEqual(["下周压测"]);
 
     const fromStore = await store.get(report.id);
     expect(fromStore?.title).toBe("云效导入周报");
@@ -500,8 +542,8 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     });
     expect(importedRes.status).toBe(201);
     const report = await importedRes.json();
-    expect(report.projects[0].name).toBe("补拉模块");
-    expect(report.projects[0].bullets).toEqual(["补拉工作项"]);
+    expect(report.projects[0].name).toBe("其他");
+    expect(report.projects[0].bullets).toEqual(["[进行中] 补拉工作项"]);
     expect(calls.some((c) => c.method === "GET")).toBe(true);
     expect(calls.every((c) => c.method === "GET" || c.method === "POST")).toBe(true);
     expect(calls.map((c) => new URL(c.url).pathname)).toContain(
