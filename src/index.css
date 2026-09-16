@@ -746,10 +746,6 @@ a { color: inherit; }
   font-size: 13px;
   color: var(--muted);
 }
-.ingest-pick input[type="file"] {
-  max-width: 240px;
-  font-size: 13px;
-}
 .ingest-filename {
   margin: 0 0 10px;
   color: var(--muted);

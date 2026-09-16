@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   cancelIngestPreview,
   ingestErrorMessage,
+  ingestRowError,
   uploadIngestFile,
   type IngestPreview,
   type IngestPreviewRow,
@@ -147,8 +148,17 @@ export function IngestUploadModal({
               type="file"
               accept={INGEST_ACCEPT}
               disabled={busy || uploading}
+              hidden
               onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
             />
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy || uploading}
+              onClick={() => inputRef.current?.click()}
+            >
+              选择文件
+            </button>
             <button
               className="btn btn-secondary btn-sm"
               disabled={busy || uploading || !file}
@@ -230,7 +240,7 @@ function PreviewRow({ row }: { row: IngestPreviewRow }) {
       <td>{cell(row.detail)}</td>
       <td>{cell(row.planDate)}</td>
       <td>{cell(row.sourceId)}</td>
-      <td>{row.ok ? "通过" : row.error || "未通过"}</td>
+      <td>{row.ok ? "通过" : ingestRowError(row.error)}</td>
     </tr>
   );
 }
