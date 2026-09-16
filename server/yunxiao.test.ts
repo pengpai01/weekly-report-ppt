@@ -14,6 +14,9 @@ import {
   parseModuleFromTitle,
   toPublicYunxiaoItem,
   yunxiaoConfigFromEnv,
+  normalizeProjectNameForMerge,
+  projectNamesShouldMerge,
+  PROJECT_NAME_ALIASES,
 } from "./yunxiao.js";
 
 const ORG = "62bcfcb73e81781f3ad1d7d7";
@@ -101,6 +104,71 @@ describe("yunxiao mapping", () => {
     expect(mapped.projects).toHaveLength(1);
     expect(mapped.projects[0].name).toBe("ERP");
     expect(mapped.projects[0].bullets).toHaveLength(2);
+  });
+
+  it("merges suffix variants into the longer formal project name", () => {
+    expect(PROJECT_NAME_ALIASES).toEqual({});
+    expect(normalizeProjectNameForMerge("设备管理")).toBe("设备");
+    expect(normalizeProjectNameForMerge("设备系统")).toBe("设备");
+    expect(normalizeProjectNameForMerge("分子一体机软件")).toBe("分子一体机");
+    expect(normalizeProjectNameForMerge("智慧仪器平台")).toBe("智慧仪器");
+    expect(normalizeProjectNameForMerge("采集模块")).toBe("采集");
+    expect(projectNamesShouldMerge("设备管理", "设备")).toBe(true);
+    expect(projectNamesShouldMerge("ERP", "设备")).toBe(false);
+
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "【设备】协议联调", category: "任务", status: "进行中", assignee: "张三" }),
+      item({ id: "2", title: "【设备管理】提测固件", category: "任务", status: "已完成" }),
+      item({ id: "3", title: "【分子一体机软件】标定", category: "任务", status: "已完成" }),
+      item({ id: "4", title: "【分子一体机】联调", category: "任务", status: "进行中" }),
+    ]);
+    expect(mapped.projects).toHaveLength(2);
+    const device = mapped.projects.find((p) => p.name === "设备管理");
+    const molecule = mapped.projects.find((p) => p.name === "分子一体机软件");
+    expect(device?.bullets).toEqual([
+      "[进行中·张三] 【设备】协议联调",
+      "[已完成] 【设备管理】提测固件",
+    ]);
+    expect(molecule?.bullets).toHaveLength(2);
+    expect(mapped.projects.map((p) => p.name)).not.toContain("设备");
+    expect(mapped.projects.map((p) => p.name)).not.toContain("分子一体机");
+  });
+
+  it("merges by containment into the longer formal project name", () => {
+    expect(projectNamesShouldMerge("形态学鉴定APP", "形态学")).toBe(true);
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "【形态学】标注", category: "任务", status: "已完成" }),
+      item({ id: "2", title: "【形态学鉴定APP】提测", category: "任务", status: "进行中" }),
+    ]);
+    expect(mapped.projects).toHaveLength(1);
+    expect(mapped.projects[0].name).toBe("形态学鉴定APP");
+    expect(mapped.projects[0].bullets).toEqual([
+      "[已完成] 【形态学】标注",
+      "[进行中] 【形态学鉴定APP】提测",
+    ]);
+    expect(mapped.projects[0].status).toBe("in_progress");
+  });
+
+  it("does not merge issues or nextWeek by module name", () => {
+    const mapped = mapYunxiaoItemsToReport([
+      item({ id: "1", title: "【设备】协议联调", category: "任务", status: "进行中" }),
+      item({ id: "2", title: "【设备管理】提测固件", category: "任务", status: "已完成" }),
+      item({ id: "b1", title: "【设备】登录失败", category: "缺陷", status: "待处理" }),
+      item({ id: "b2", title: "【设备管理】固件崩溃", category: "缺陷", status: "待处理" }),
+      item({ id: "n1", title: "【设备】下周压测", category: "任务", status: "待处理" }),
+      item({ id: "n2", title: "【设备管理】下周提测", category: "任务", status: "待处理" }),
+    ]);
+    expect(mapped.projects).toHaveLength(1);
+    expect(mapped.projects[0].name).toBe("设备管理");
+    expect(mapped.issues.items.map((i: { text: string }) => i.text)).toEqual([
+      "【设备】登录失败",
+      "【设备管理】固件崩溃",
+    ]);
+    expect(mapped.nextWeek.map((row) => row.projectName)).toEqual(["", ""]);
+    expect(mapped.nextWeek.map((row) => row.items)).toEqual([
+      ["【设备】下周压测"],
+      ["【设备管理】下周提测"],
+    ]);
   });
 
   it("puts titles without 【】 into 其他", () => {

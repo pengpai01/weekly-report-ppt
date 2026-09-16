@@ -271,6 +271,79 @@ export function parseModuleFromTitle(title) {
   return name || "其他";
 }
 
+/** Trailing tokens stripped before comparing project names in the projects bucket. */
+export const PROJECT_NAME_MERGE_SUFFIXES = ["管理", "系统", "平台", "软件", "模块"];
+const PROJECT_NAME_SUFFIX_RE = new RegExp(`(?:${PROJECT_NAME_MERGE_SUFFIXES.join("|")})+$`);
+
+/**
+ * Optional alias table: exact module label → canonical display name.
+ * Empty for now; pass `projectNameAliases` into mapYunxiaoItemsToReport or fill later (env/JSON).
+ * @type {Readonly<Record<string, string>>}
+ */
+export const PROJECT_NAME_ALIASES = Object.freeze({});
+
+export function applyProjectNameAlias(name, aliases = PROJECT_NAME_ALIASES) {
+  const trimmed = String(name || "").trim();
+  const mapped = aliases?.[trimmed];
+  if (typeof mapped === "string" && mapped.trim()) return mapped.trim();
+  return trimmed;
+}
+
+/** Strip trailing 管理/系统/平台/软件/模块 so `设备管理` and `设备` compare equal. */
+export function normalizeProjectNameForMerge(name) {
+  return String(name || "").trim().replace(PROJECT_NAME_SUFFIX_RE, "");
+}
+
+export function projectNamesShouldMerge(left, right, aliases = PROJECT_NAME_ALIASES) {
+  const a = normalizeProjectNameForMerge(applyProjectNameAlias(left, aliases));
+  const b = normalizeProjectNameForMerge(applyProjectNameAlias(right, aliases));
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.includes(b) || b.includes(a);
+}
+
+function pickLongerDisplayName(current, candidate) {
+  return candidate.length > current.length ? candidate : current;
+}
+
+/**
+ * Merge project-bucket groups whose names match after alias + suffix strip, or by
+ * normalized containment. Display name is the longer original module label.
+ * @param {Map<string, object[]>} groups
+ * @param {Record<string, string>} [aliases]
+ */
+export function mergeProjectModuleGroups(groups, aliases = PROJECT_NAME_ALIASES) {
+  const names = [...groups.keys()];
+  const parent = names.map((_, index) => index);
+  const find = (index) => {
+    if (parent[index] !== index) parent[index] = find(parent[index]);
+    return parent[index];
+  };
+  for (let i = 0; i < names.length; i += 1) {
+    for (let j = i + 1; j < names.length; j += 1) {
+      if (!projectNamesShouldMerge(names[i], names[j], aliases)) continue;
+      const ri = find(i);
+      const rj = find(j);
+      if (ri !== rj) parent[rj] = ri;
+    }
+  }
+
+  const merged = new Map();
+  for (let i = 0; i < names.length; i += 1) {
+    const root = find(i);
+    const name = names[i];
+    const items = groups.get(name) || [];
+    const cluster = merged.get(root);
+    if (!cluster) {
+      merged.set(root, { name, items: [...items] });
+      continue;
+    }
+    cluster.name = pickLongerDisplayName(cluster.name, name);
+    cluster.items.push(...items);
+  }
+  return merged;
+}
+
 function formatProjectBullet(item) {
   const parts = [optionalString(item?.status), optionalString(item?.assignee)].filter(Boolean);
   const prefix = parts.length ? `[${parts.join("·")}] ` : "";
@@ -286,11 +359,15 @@ function projectStatusFor(items) {
 
 /**
  * Map cached Yunxiao work items into Report fields for store.create.
- * Classify by status first; only the projects bucket is grouped by 【module】.
+ * Classify by status first; only the projects bucket is grouped by 【module】
+ * (then merged by suffix-strip / containment). Issues and nextWeek stay flat.
  * @param {object[]} items
  * @param {object} [reportPartial]
+ * @param {object} [options]
+ * @param {Record<string, string>} [options.projectNameAliases]
  */
-export function mapYunxiaoItemsToReport(items, reportPartial = {}) {
+export function mapYunxiaoItemsToReport(items, reportPartial = {}, options = {}) {
+  const aliases = options.projectNameAliases ?? PROJECT_NAME_ALIASES;
   const projectsByModule = new Map();
   const issueItems = [];
   const nextWeekItems = [];
@@ -314,12 +391,14 @@ export function mapYunxiaoItemsToReport(items, reportPartial = {}) {
     projectsByModule.get(name).push(item);
   }
 
-  const projects = [...projectsByModule.entries()].map(([name, grouped]) => ({
-    id: randomUUID(),
-    name,
-    bullets: grouped.map((entry) => formatProjectBullet(entry)),
-    status: projectStatusFor(grouped),
-  }));
+  const projects = [...mergeProjectModuleGroups(projectsByModule, aliases).values()].map(
+    ({ name, items: grouped }) => ({
+      id: randomUUID(),
+      name,
+      bullets: grouped.map((entry) => formatProjectBullet(entry)),
+      status: projectStatusFor(grouped),
+    }),
+  );
 
   const nextWeek = nextWeekItems.length
     ? nextWeekItems.map((text) => ({
