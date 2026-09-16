@@ -28,9 +28,21 @@ export function yunxiaoErrorMessage(err: unknown, fallback: string): string {
     return "无法连接本机服务，请确认服务已启动后再试。";
   }
   const status = err instanceof Error ? (err as ApiError).status : undefined;
-  if (status === 404) return "云效导入服务暂不可用（接口未就绪或已下线）。";
-  if (status === 401 || status === 403) return "云效鉴权失败，请检查本机服务配置。";
-  if (err instanceof Error && err.message.trim()) return err.message;
+  const message = err instanceof Error ? err.message.trim() : "";
+
+  if (status === 404 && (!message || /^not found$/i.test(message))) {
+    return "云效导入服务暂不可用（接口未就绪或已下线）。";
+  }
+  if (status === 401 || status === 403) {
+    return "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。";
+  }
+  if (status === 502 && /authentication failed/i.test(message)) {
+    return "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。";
+  }
+  if (status === 500 && /YUNXIAO_/i.test(message)) {
+    return "请在项目 .env 填写 YUNXIAO_ORG_ID 和 YUNXIAO_PAT 后重启服务。";
+  }
+  if (message) return message;
   return fallback;
 }
 

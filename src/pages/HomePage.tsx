@@ -54,7 +54,17 @@ export function HomePage() {
   const importSelected = async (itemIds: string[]) => {
     setBusy(true);
     try {
-      const report = await importFromYunxiao(itemIds);
+      const last = sorted[0];
+      const report = await importFromYunxiao(
+        itemIds,
+        last
+          ? {
+              department: last.department,
+              author: last.author,
+              templateType: last.templateType,
+            }
+          : undefined,
+      );
       setImportOpen(false);
       navigate(`/reports/${report.id}/meta`);
     } catch (err) {

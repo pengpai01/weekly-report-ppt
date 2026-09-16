@@ -93,9 +93,28 @@ describe("yunxiao API client", () => {
     expect(yunxiaoErrorMessage(notFound, "fallback")).toBe(
       "云效导入服务暂不可用（接口未就绪或已下线）。",
     );
+    const missingItems = new Error("Yunxiao items not found: abc") as Error & { status: number };
+    missingItems.status = 404;
+    expect(yunxiaoErrorMessage(missingItems, "fallback")).toBe("Yunxiao items not found: abc");
     const forbidden = new Error("nope") as Error & { status: number };
     forbidden.status = 403;
-    expect(yunxiaoErrorMessage(forbidden, "fallback")).toBe("云效鉴权失败，请检查本机服务配置。");
+    expect(yunxiaoErrorMessage(forbidden, "fallback")).toBe(
+      "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。",
+    );
+    const auth502 = new Error("Yunxiao authentication failed. Check YUNXIAO_PAT permissions and YUNXIAO_ORG_ID.") as Error & {
+      status: number;
+    };
+    auth502.status = 502;
+    expect(yunxiaoErrorMessage(auth502, "fallback")).toBe(
+      "云效鉴权失败，请检查本机 .env 中的 YUNXIAO_PAT / YUNXIAO_ORG_ID。",
+    );
+    const missingEnv = new Error("Missing Yunxiao config: YUNXIAO_ORG_ID, YUNXIAO_PAT.") as Error & {
+      status: number;
+    };
+    missingEnv.status = 500;
+    expect(yunxiaoErrorMessage(missingEnv, "fallback")).toBe(
+      "请在项目 .env 填写 YUNXIAO_ORG_ID 和 YUNXIAO_PAT 后重启服务。",
+    );
     const bad = new Error("工作项不存在") as Error & { status: number };
     bad.status = 400;
     expect(yunxiaoErrorMessage(bad, "fallback")).toBe("工作项不存在");
