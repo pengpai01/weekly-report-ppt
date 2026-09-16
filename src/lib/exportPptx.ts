@@ -685,9 +685,9 @@ function renderPlan(
 
   slide.addTable(rows, {
     x: 0.45,
-    y: 1.18,
+    y: 1.16,
     w: 12.4,
-    h: 5.55,
+    h: 5.42,
     colW: [0.9, 3.3, 8.2],
     border: [
       { pt: 0.6, color: THEME.line },
@@ -696,7 +696,7 @@ function renderPlan(
       { pt: 0.6, color: THEME.line },
     ],
     fontFace: FONT,
-    fontSize: 13,
+    fontSize: 12,
     color: THEME.text,
     valign: "middle",
     align: "left",
