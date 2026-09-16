@@ -201,8 +201,14 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> }) {
-  const calls: { url: string; authorization: string | null; method: string }[] = [];
+function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]>; html?: boolean }) {
+  const calls: {
+    url: string;
+    method: string;
+    token: string | null;
+    authorization: string | null;
+    body: unknown;
+  }[] = [];
   const byCategory: Record<string, MockWorkitem[]> = options?.workitems ?? {
     Task: [
       {
@@ -256,67 +262,73 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> 
 
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
-    const authorization = new Headers(init?.headers).get("Authorization");
-    calls.push({ url: url.toString(), authorization, method: init?.method || "GET" });
+    const headers = new Headers(init?.headers);
+    const method = (init?.method || "GET").toUpperCase();
+    let parsedBody: unknown = null;
+    if (init?.body) {
+      parsedBody = JSON.parse(String(init.body));
+    }
+    calls.push({
+      url: url.toString(),
+      method,
+      token: headers.get("x-yunxiao-token"),
+      authorization: headers.get("Authorization"),
+      body: parsedBody,
+    });
     if (url.origin !== YUNXIAO_OPENAPI_BASE) {
       throw new Error(`unexpected origin ${url.origin}`);
     }
-
-    if (url.pathname === YUNXIAO_PATHS.listProjects(ORG)) {
-      throw new Error("ListProjects should be skipped when YUNXIAO_SPACE_ID is set");
-    }
-
-    if (url.pathname === YUNXIAO_PATHS.listSprints(ORG)) {
-      expect(url.searchParams.get("spaceType")).toBe("Project");
-      expect(url.searchParams.get("spaceIdentifier")).toBe(SPACE);
-      return jsonResponse({
-        success: true,
-        sprints: [
-          { identifier: SPRINT_DOING, name: "当前迭代", status: "DOING" },
-          { identifier: "sprint-old", name: "上个迭代", status: "DONE" },
-        ],
+    if (options?.html) {
+      return new Response("<!DOCTYPE html><html><body>login</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
       });
     }
 
-    if (url.pathname === YUNXIAO_PATHS.listWorkitems(ORG)) {
-      expect(url.searchParams.get("spaceType")).toBe("Project");
-      expect(url.searchParams.get("spaceIdentifier")).toBe(SPACE);
-      const category = url.searchParams.get("category") || "";
-      expect(["Req"]).not.toContain(category);
-      const token = url.searchParams.get("nextToken");
-      const list = byCategory[category] || [];
-      if (category === "Task" && !token) {
-        return jsonResponse({
-          success: true,
-          nextToken: "page-2",
-          workitems: list.slice(0, 1),
-        });
-      }
-      if (category === "Task" && token === "page-2") {
-        return jsonResponse({
-          success: true,
-          nextToken: "",
-          workitems: list.slice(1),
-        });
-      }
-      return jsonResponse({ success: true, nextToken: "", workitems: list });
+    if (url.pathname.includes("/listWorkitems") || url.pathname.includes("/listProjects")) {
+      throw new Error(`legacy path must not be called: ${url.pathname}`);
+    }
+
+    if (url.pathname === YUNXIAO_PATHS.listSprints(ORG, SPACE)) {
+      expect(method).toBe("GET");
+      return jsonResponse([
+        { id: SPRINT_DOING, name: "当前迭代", status: "DOING" },
+        { id: "sprint-old", name: "上个迭代", status: "DONE" },
+      ]);
+    }
+
+    if (url.pathname === YUNXIAO_PATHS.searchWorkitems(ORG)) {
+      expect(method).toBe("POST");
+      expect(headers.get("content-type")).toMatch(/application\/json/i);
+      const payload = parsedBody as {
+        category?: string;
+        spaceId?: string;
+        spaceType?: string;
+        page?: number;
+        perPage?: number;
+      };
+      expect(payload.spaceId).toBe(SPACE);
+      expect(payload.spaceType).toBe("Project");
+      expect(payload.category).not.toBe("Req");
+      const list = byCategory[payload.category || ""] || [];
+      const page = Number(payload.page || 1);
+      const perPage = Number(payload.perPage || 200);
+      const start = (page - 1) * perPage;
+      return jsonResponse(list.slice(start, start + perPage));
     }
 
     if (url.pathname === YUNXIAO_PATHS.getWorkitem(ORG, "missing-refetch")) {
       return jsonResponse({
-        success: true,
-        workitem: {
-          id: "missing-refetch",
-          subject: "补拉工作项",
-          workitemType: { name: "任务" },
-          status: { name: "进行中" },
-          gmtModified: nowMs,
-          module: { name: "补拉模块" },
-        },
+        id: "missing-refetch",
+        subject: "补拉工作项",
+        workitemType: { name: "任务" },
+        status: { name: "进行中" },
+        gmtModified: nowMs,
+        module: { name: "补拉模块" },
       });
     }
 
-    if (url.pathname.startsWith(`/organization/${ORG}/workitems/`)) {
+    if (url.pathname.startsWith(`/oapi/v1/projex/organizations/${ORG}/workitems/`)) {
       return jsonResponse({ errorMsg: "not found" }, 404);
     }
 
@@ -369,7 +381,7 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(fetched).toBe(false);
   });
 
-  it("GETs Task workitems via ListWorkitems with fixed space id and Bearer PAT", async () => {
+  it("GETs Task workitems via SearchWorkitems POST, x-yunxiao-token, and array JSON", async () => {
     const { fetchImpl, calls } = createMockFetch();
     const itemsStore = createMemoryYunxiaoItemStore();
     const { base } = await startApi({
@@ -394,22 +406,45 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
       sprint: "当前迭代",
     });
 
-    expect(calls.some((c) => c.authorization === `Bearer ${PAT}`)).toBe(true);
-    expect(calls.map((c) => new URL(c.url).pathname)).toEqual(
-      expect.arrayContaining([
-        YUNXIAO_PATHS.listWorkitems(ORG),
-        YUNXIAO_PATHS.listSprints(ORG),
-      ]),
+    const searchCalls = calls.filter((c) => c.method === "POST");
+    expect(searchCalls.length).toBeGreaterThan(0);
+    expect(searchCalls.every((c) => c.token === PAT)).toBe(true);
+    expect(searchCalls.every((c) => !c.authorization)).toBe(true);
+    const taskSearch = searchCalls.find((c) => (c.body as { category?: string }).category === "Task");
+    expect(taskSearch?.body).toMatchObject({
+      category: "Task",
+      spaceId: SPACE,
+      spaceType: "Project",
+      page: 1,
+      perPage: 200,
+      orderBy: "gmtModified",
+      sort: "desc",
+    });
+    expect(searchCalls.map((c) => new URL(c.url).pathname)).toEqual(
+      expect.arrayContaining([YUNXIAO_PATHS.searchWorkitems(ORG)]),
     );
-    expect(calls.map((c) => new URL(c.url).pathname)).not.toContain(YUNXIAO_PATHS.listProjects(ORG));
-    expect(calls.every((c) => new URL(c.url).searchParams.get("category") !== "Req")).toBe(true);
-    expect(calls.map((c) => new URL(c.url).origin).every((origin) => origin === YUNXIAO_OPENAPI_BASE)).toBe(
-      true,
+    expect(searchCalls.map((c) => (c.body as { category?: string }).category).sort()).toEqual(
+      ["Bug", "Task"].sort(),
     );
+    expect(calls.map((c) => new URL(c.url).pathname)).not.toContain(`/organization/${ORG}/listWorkitems`);
 
     const cached = await itemsStore.getMany(["task-progress"]);
     expect(cached[0]?.title).toBe("设备协议联调");
     expect(cached[0]?.assignee).toBe("张三");
+  });
+
+  it("returns 502 when Yunxiao answers with an HTML login page instead of JSON", async () => {
+    const { fetchImpl } = createMockFetch({ html: true });
+    const { base } = await startApi({
+      yunxiaoEnv: { YUNXIAO_ORG_ID: ORG, YUNXIAO_PAT: PAT },
+      yunxiaoFetch: fetchImpl,
+      yunxiaoItems: createMemoryYunxiaoItemStore(),
+    });
+    const res = await fetch(`${base}/api/yunxiao/workitems`);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toMatch(/HTML/i);
+    expect(body.items).toBeUndefined();
   });
 
   it("POSTs import from cache into /api/reports create path", async () => {
@@ -467,9 +502,13 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     const report = await importedRes.json();
     expect(report.projects[0].name).toBe("补拉模块");
     expect(report.projects[0].bullets).toEqual(["补拉工作项"]);
-    expect(calls.every((c) => c.method === "GET")).toBe(true);
+    expect(calls.some((c) => c.method === "GET")).toBe(true);
+    expect(calls.every((c) => c.method === "GET" || c.method === "POST")).toBe(true);
     expect(calls.map((c) => new URL(c.url).pathname)).toContain(
       YUNXIAO_PATHS.getWorkitem(ORG, "missing-refetch"),
+    );
+    expect(calls.every((c) => c.method !== "PUT" && c.method !== "PATCH" && c.method !== "DELETE")).toBe(
+      true,
     );
   });
 });

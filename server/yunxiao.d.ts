@@ -5,9 +5,8 @@ export const DEFAULT_YUNXIAO_SPACE_ID: "6230f5b04297236a20e79654d4";
 export const DEFAULT_YUNXIAO_UPDATED_WITHIN_DAYS: 14;
 export const CREATE_YUNXIAO_ITEMS_SQL: string;
 export const YUNXIAO_PATHS: {
-  listProjects(orgId: string): string;
-  listWorkitems(orgId: string): string;
-  listSprints(orgId: string): string;
+  searchWorkitems(orgId: string): string;
+  listSprints(orgId: string, spaceIdentifier: string): string;
   getWorkitem(orgId: string, workitemId: string): string;
 };
 

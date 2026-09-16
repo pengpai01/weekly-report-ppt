@@ -32,12 +32,13 @@ const PAGE_SIZE = 200;
 const PRIMARY_CATEGORIES = ["Task"];
 const SECONDARY_CATEGORIES = ["Bug"];
 
-/** devops/2021-06-25 ListProjects / ListWorkitems / ListSprints / GetWorkItemInfo */
+/** oapi/v1 projex paths used with x-yunxiao-token (PAT). */
 export const YUNXIAO_PATHS = {
-  listProjects: (orgId) => `/organization/${orgId}/listProjects`,
-  listWorkitems: (orgId) => `/organization/${orgId}/listWorkitems`,
-  listSprints: (orgId) => `/organization/${orgId}/sprints/list`,
-  getWorkitem: (orgId, workitemId) => `/organization/${orgId}/workitems/${workitemId}`,
+  searchWorkitems: (orgId) => `/oapi/v1/projex/organizations/${orgId}/workitems:search`,
+  listSprints: (orgId, spaceIdentifier) =>
+    `/oapi/v1/projex/organizations/${orgId}/projects/${spaceIdentifier}/sprints`,
+  getWorkitem: (orgId, workitemId) =>
+    `/oapi/v1/projex/organizations/${orgId}/workitems/${workitemId}`,
 };
 
 export const CREATE_YUNXIAO_ITEMS_SQL = `
@@ -438,21 +439,46 @@ export function createMemoryYunxiaoItemStore() {
   };
 }
 
-async function readYunxiaoJson(response) {
-  const text = await response.text();
-  if (!text) return {};
+function looksLikeHtml(text) {
+  const sample = String(text || "").trim().slice(0, 256).toLowerCase();
+  return (
+    sample.startsWith("<!doctype") ||
+    sample.startsWith("<html") ||
+    sample.includes("<head") ||
+    (sample.includes("login") && sample.includes("<form"))
+  );
+}
+
+function parseYunxiaoJson(response, text, pat) {
+  const trimmed = String(text || "").trim();
+  const contentType = response.headers?.get?.("content-type") || "";
+  if (looksLikeHtml(trimmed) || contentType.toLowerCase().includes("text/html")) {
+    throw httpError(
+      502,
+      "Yunxiao OpenAPI returned HTML instead of JSON. Use x-yunxiao-token and POST /oapi/v1/projex/.../workitems:search.",
+    );
+  }
+  if (!trimmed) {
+    throw httpError(502, "Yunxiao OpenAPI returned an empty body.");
+  }
   try {
-    return JSON.parse(text);
+    return JSON.parse(trimmed);
   } catch {
-    return { errorMsg: text.slice(0, 200) };
+    throw httpError(
+      502,
+      `Yunxiao OpenAPI returned non-JSON: ${redact(trimmed.slice(0, 120), pat)}`,
+    );
   }
 }
 
-function assertYunxiaoSuccess(body, pat) {
-  if (body && body.success === false) {
-    const msg = redact(body.errorMsg || body.errorMessage || body.errorCode || "request failed", pat);
-    throw httpError(502, `Yunxiao OpenAPI request failed: ${msg}`);
+function asWorkitemArray(body) {
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === "object") {
+    if (Array.isArray(body.workitems)) return body.workitems;
+    if (Array.isArray(body.items)) return body.items;
+    if (Array.isArray(body.data)) return body.data;
   }
+  return null;
 }
 
 export function createYunxiaoClient(options) {
@@ -466,22 +492,27 @@ export function createYunxiaoClient(options) {
     throw httpError(500, "Yunxiao client is missing fetch");
   }
 
-  async function request(path, query = {}, { allowNotFound = false } = {}) {
+  async function request({ method = "GET", path, query = {}, body, allowNotFound = false, expectArray = false }) {
     const url = new URL(joinUrl(baseUrl, path));
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null && value !== "") {
         url.searchParams.set(key, String(value));
       }
     }
+    const headers = {
+      Accept: "application/json",
+      "x-yunxiao-token": pat,
+    };
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
     let response;
     try {
       response = await fetchImpl(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${pat}`,
-          "x-yunxiao-token": pat,
-        },
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch (err) {
       throw httpError(
@@ -490,95 +521,92 @@ export function createYunxiaoClient(options) {
       );
     }
 
-    const body = await readYunxiaoJson(response);
+    const text = await response.text();
     if (allowNotFound && response.status === 404) return null;
     if (response.status === 401 || response.status === 403) {
       throw httpError(
         502,
-        "Yunxiao authentication failed. Check YUNXIAO_PAT permissions and YUNXIAO_ORG_ID.",
+        "Yunxiao authentication failed. Check YUNXIAO_PAT (x-yunxiao-token) and YUNXIAO_ORG_ID.",
       );
     }
+
+    const parsed = parseYunxiaoJson(response, text, pat);
     if (!response.ok) {
       const msg = redact(
-        body.errorMsg || body.errorMessage || body.errorCode || `HTTP ${response.status}`,
+        parsed?.errorMsg || parsed?.errorMessage || parsed?.errorCode || parsed?.error || `HTTP ${response.status}`,
         pat,
       );
       throw httpError(502, `Yunxiao OpenAPI request failed: ${msg}`);
     }
-    assertYunxiaoSuccess(body, pat);
-    return body;
-  }
-
-  async function paginate(path, query, listKey) {
-    const collected = [];
-    let nextToken = "";
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const body = await request(path, {
-        ...query,
-        maxResults: PAGE_SIZE,
-        ...(nextToken ? { nextToken } : {}),
-      });
-      const chunk = Array.isArray(body[listKey]) ? body[listKey] : [];
-      collected.push(...chunk);
-      nextToken = optionalString(body.nextToken) || "";
-      if (!nextToken || chunk.length === 0) break;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.success === false) {
+      const msg = redact(parsed.errorMsg || parsed.errorMessage || parsed.errorCode || "request failed", pat);
+      throw httpError(502, `Yunxiao OpenAPI request failed: ${msg}`);
     }
-    return collected;
-  }
-
-  async function listProjects() {
-    return paginate(
-      YUNXIAO_PATHS.listProjects(orgId),
-      { category: "Project", scope: "all" },
-      "projects",
-    );
+    if (expectArray) {
+      const list = asWorkitemArray(parsed);
+      if (!list) {
+        throw httpError(502, "Yunxiao SearchWorkitems returned unexpected JSON (expected an array).");
+      }
+      return list;
+    }
+    return parsed;
   }
 
   async function resolveProject() {
-    if (spaceId) {
-      return { spaceIdentifier: spaceId, name: projectName };
+    if (!spaceId) {
+      throw httpError(500, "Missing Yunxiao config: YUNXIAO_SPACE_ID.");
     }
-    const projects = await listProjects();
-    const wanted = projectName.trim();
-    const exact = projects.find((p) => optionalString(p.name) === wanted);
-    const project = exact || projects.find((p) => optionalString(p.name)?.includes(wanted));
-    if (!project) {
-      throw httpError(404, `Yunxiao project not found: ${wanted}`);
-    }
-    const spaceIdentifier = optionalString(project.identifier) || optionalString(project.id);
-    if (!spaceIdentifier) {
-      throw httpError(502, "Yunxiao project is missing identifier (spaceIdentifier)");
-    }
-    return { ...project, spaceIdentifier, name: optionalString(project.name) || wanted };
+    return { spaceIdentifier: spaceId, name: projectName };
   }
 
   async function listSprints(spaceIdentifier) {
     try {
-      return await paginate(
-        YUNXIAO_PATHS.listSprints(orgId),
-        { spaceType: "Project", spaceIdentifier },
-        "sprints",
-      );
+      const collected = [];
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const chunk = await request({
+          method: "GET",
+          path: YUNXIAO_PATHS.listSprints(orgId, spaceIdentifier),
+          query: { page, perPage: PAGE_SIZE },
+          expectArray: true,
+        });
+        collected.push(...chunk);
+        if (chunk.length < PAGE_SIZE) break;
+      }
+      return collected;
     } catch {
       return [];
     }
   }
 
-  async function listWorkitems(spaceIdentifier, category) {
-    return paginate(
-      YUNXIAO_PATHS.listWorkitems(orgId),
-      {
-        spaceType: "Project",
-        spaceIdentifier,
-        category,
-        searchType: "LIST",
-      },
-      "workitems",
-    );
+  async function searchWorkitems(spaceIdentifier, category) {
+    const collected = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const chunk = await request({
+        method: "POST",
+        path: YUNXIAO_PATHS.searchWorkitems(orgId),
+        body: {
+          category,
+          spaceId: spaceIdentifier,
+          spaceType: "Project",
+          page,
+          perPage: PAGE_SIZE,
+          orderBy: "gmtModified",
+          sort: "desc",
+        },
+        expectArray: true,
+      });
+      collected.push(...chunk);
+      if (chunk.length < PAGE_SIZE) break;
+    }
+    return collected;
   }
 
   async function getWorkitem(workitemId) {
-    const body = await request(YUNXIAO_PATHS.getWorkitem(orgId, workitemId), {}, { allowNotFound: true });
+    const body = await request({
+      method: "GET",
+      path: YUNXIAO_PATHS.getWorkitem(orgId, workitemId),
+      allowNotFound: true,
+    });
     if (!body) return null;
     return body.workitem || body;
   }
@@ -617,11 +645,11 @@ export function createYunxiaoClient(options) {
 
     const rawItems = [];
     for (const category of PRIMARY_CATEGORIES) {
-      rawItems.push(...(await listWorkitems(project.spaceIdentifier, category)));
+      rawItems.push(...(await searchWorkitems(project.spaceIdentifier, category)));
     }
     for (const category of SECONDARY_CATEGORIES) {
       try {
-        rawItems.push(...(await listWorkitems(project.spaceIdentifier, category)));
+        rawItems.push(...(await searchWorkitems(project.spaceIdentifier, category)));
       } catch {
         // Bug (and other secondary categories) are optional.
       }
@@ -648,10 +676,9 @@ export function createYunxiaoClient(options) {
     spaceId,
     baseUrl,
     request,
-    listProjects,
     resolveProject,
     listSprints,
-    listWorkitems,
+    searchWorkitems,
     getWorkitem,
     getWorkitemsByIds,
     listFilteredWorkitems,

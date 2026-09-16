@@ -13,7 +13,7 @@ export const DEFAULT_PORT = 5174;
 export const TABLE_PREFIX = "wr_";
 export const REPORTS_TABLE = "wr_reports";
 export const YUNXIAO_ITEMS_TABLE = "wr_yunxiao_items";
-/** Official devops/2021-06-25 OpenAPI host for PAT Bearer calls. */
+/** Official Yunxiao OpenAPI host (PAT via x-yunxiao-token). */
 export const YUNXIAO_OPENAPI_BASE = "https://openapi-rdc.aliyuncs.com";
 export const DEFAULT_YUNXIAO_PROJECT_NAME = "DNK-设备软件";
 /** DNK-设备软件 (CFRK) projex spaceIdentifier from live probe. */
@@ -53,6 +53,7 @@ export function yunxiaoConfigFromEnv(source = process.env) {
   const projectName =
     source.YUNXIAO_PROJECT_NAME?.trim() || DEFAULT_YUNXIAO_PROJECT_NAME;
   const spaceId = source.YUNXIAO_SPACE_ID?.trim() || DEFAULT_YUNXIAO_SPACE_ID;
+  const baseUrl = source.YUNXIAO_API_BASE_URL?.trim() || YUNXIAO_OPENAPI_BASE;
   const missing = [];
   if (!orgId) missing.push("YUNXIAO_ORG_ID");
   if (!pat) missing.push("YUNXIAO_PAT");
@@ -68,7 +69,7 @@ export function yunxiaoConfigFromEnv(source = process.env) {
     pat,
     projectName,
     spaceId,
-    baseUrl: YUNXIAO_OPENAPI_BASE,
+    baseUrl,
   };
 }
 
