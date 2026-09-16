@@ -16,7 +16,7 @@
   --ok: #0f7b4a;
   --shadow: 0 10px 30px rgba(10, 39, 68, 0.08);
   --radius: 14px;
-  --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "WenQuanYi Micro Hei", "Source Han Sans SC", sans-serif;
 }
 
 * { box-sizing: border-box; }
