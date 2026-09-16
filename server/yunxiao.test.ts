@@ -4,18 +4,21 @@ import type { AddressInfo } from "node:net";
 import { createMemoryReportStore } from "./store.js";
 import { routeApi } from "./http.js";
 import {
+  DEFAULT_YUNXIAO_SPACE_ID,
   YUNXIAO_OPENAPI_BASE,
   YUNXIAO_PATHS,
   classifyYunxiaoItem,
   createMemoryYunxiaoItemStore,
   mapYunxiaoItemsToReport,
+  normalizeYunxiaoWorkitem,
+  toPublicYunxiaoItem,
   yunxiaoConfigFromEnv,
 } from "./yunxiao.js";
 
 const ORG = "62bcfcb73e81781f3ad1d7d7";
 const PAT = "test-pat-not-real";
 const PROJECT = "DNK-设备软件";
-const SPACE = "space-dnk-1";
+const SPACE = DEFAULT_YUNXIAO_SPACE_ID;
 const SPRINT_DOING = "sprint-doing";
 const nowMs = Date.now();
 const daysAgo = (days: number) => nowMs - days * 24 * 60 * 60 * 1000;
@@ -76,24 +79,24 @@ describe("yunxiao mapping", () => {
   });
 
   it("maps blocked items and Bugs to issues, planned/unfinished to nextWeek", () => {
-    expect(classifyYunxiaoItem(item({ id: "b", title: "x", category: "Bug", status: "进行中" }))).toBe(
+    expect(classifyYunxiaoItem(item({ id: "b", title: "x", category: "缺陷", status: "进行中" }))).toBe(
       "issues",
     );
-    expect(classifyYunxiaoItem(item({ id: "k", title: "x", category: "Req", status: "阻塞" }))).toBe(
+    expect(classifyYunxiaoItem(item({ id: "k", title: "x", category: "任务", status: "阻塞" }))).toBe(
       "issues",
     );
-    expect(classifyYunxiaoItem(item({ id: "t", title: "x", category: "Task", status: "待处理" }))).toBe(
+    expect(classifyYunxiaoItem(item({ id: "t", title: "x", category: "任务", status: "待处理" }))).toBe(
       "nextWeek",
     );
-    expect(classifyYunxiaoItem(item({ id: "c", title: "x", category: "Req", status: "已取消" }))).toBe(
+    expect(classifyYunxiaoItem(item({ id: "c", title: "x", category: "任务", status: "已取消" }))).toBe(
       "skip",
     );
 
     const mapped = mapYunxiaoItemsToReport([
-      item({ id: "bug1", title: "登录失败", category: "Bug", status: "待处理" }),
-      item({ id: "blk", title: "供应链卡住", category: "Req", status: "已阻塞", module: "ERP" }),
-      item({ id: "plan", title: "下周联调", category: "Task", status: "待处理", module: "设备管理" }),
-      item({ id: "skip", title: "作废需求", category: "Req", status: "已取消" }),
+      item({ id: "bug1", title: "登录失败", category: "缺陷", status: "待处理" }),
+      item({ id: "blk", title: "供应链卡住", category: "任务", status: "已阻塞", module: "ERP" }),
+      item({ id: "plan", title: "下周联调", category: "任务", status: "待处理", module: "设备管理" }),
+      item({ id: "skip", title: "作废需求", category: "任务", status: "已取消" }),
     ]);
     expect(mapped.issues.empty).toBe(false);
     expect(mapped.issues.items.map((i: { text: string }) => i.text)).toEqual([
@@ -118,6 +121,44 @@ describe("yunxiao mapping", () => {
   });
 });
 
+describe("normalizeYunxiaoWorkitem (live probe fields)", () => {
+  it("reads nested id/subject/workitemType/status/assignedTo/sprint/module", () => {
+    const mapped = normalizeYunxiaoWorkitem({
+      id: "wi-1",
+      identifier: "should-not-win",
+      subject: "联调设备协议",
+      workitemType: { name: "任务" },
+      status: { name: "进行中", statusStageIdentifier: "2" },
+      assignedTo: { name: "张三" },
+      gmtModified: 1_700_000_000_000,
+      sprint: { id: "sprint-1", name: "Sprint 12" },
+      module: { name: "设备管理" },
+    });
+    expect(toPublicYunxiaoItem(mapped!)).toEqual({
+      id: "wi-1",
+      title: "联调设备协议",
+      category: "任务",
+      status: "进行中",
+      assignee: "张三",
+      updatedAt: new Date(1_700_000_000_000).toISOString(),
+      sprint: "Sprint 12",
+      module: "设备管理",
+    });
+  });
+
+  it("omits module when the field is absent (does not fall back to spaceName)", () => {
+    const mapped = normalizeYunxiaoWorkitem({
+      id: "wi-2",
+      subject: "无模块任务",
+      workitemType: { name: "任务" },
+      status: { name: "待处理" },
+      gmtModified: 1_700_000_000_000,
+      spaceName: "DNK-设备软件",
+    });
+    expect(toPublicYunxiaoItem(mapped!).module).toBeUndefined();
+  });
+});
+
 describe("yunxiaoConfigFromEnv", () => {
   it("returns a clear 500 and never mentions the PAT value", () => {
     try {
@@ -135,22 +176,22 @@ describe("yunxiaoConfigFromEnv", () => {
       expect((err as Error).message).toMatch(/YUNXIAO_ORG_ID/);
       expect((err as Error).message).not.toContain("super-secret-token");
     }
+    const cfg = yunxiaoConfigFromEnv({ YUNXIAO_ORG_ID: "org-1", YUNXIAO_PAT: "token" });
+    expect(cfg.spaceId).toBe(DEFAULT_YUNXIAO_SPACE_ID);
   });
 });
 
 const servers: import("node:http").Server[] = [];
 
 type MockWorkitem = {
-  identifier: string;
+  id: string;
   subject: string;
-  categoryIdentifier: string;
-  status: string;
-  statusStageIdentifier?: string;
-  assignedTo?: string;
+  workitemType: { name: string };
+  status: { name: string; statusStageIdentifier?: string };
+  assignedTo?: { name: string };
   gmtModified: number;
-  sprintIdentifier?: string;
-  spaceName?: string;
-  module?: string;
+  sprint?: { id: string; name: string };
+  module?: { name: string };
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -163,55 +204,52 @@ function jsonResponse(body: unknown, status = 200) {
 function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> }) {
   const calls: { url: string; authorization: string | null; method: string }[] = [];
   const byCategory: Record<string, MockWorkitem[]> = options?.workitems ?? {
-    Req: [
-      {
-        identifier: "req-progress",
-        subject: "设备协议联调",
-        categoryIdentifier: "Req",
-        status: "进行中",
-        statusStageIdentifier: "2",
-        assignedTo: "user-1",
-        gmtModified: daysAgo(40),
-        sprintIdentifier: SPRINT_DOING,
-        module: "设备管理",
-      },
-      {
-        identifier: "req-old",
-        subject: "过期需求",
-        categoryIdentifier: "Req",
-        status: "待处理",
-        gmtModified: daysAgo(40),
-        sprintIdentifier: "sprint-old",
-        module: "设备管理",
-      },
-    ],
     Task: [
       {
-        identifier: "task-done",
-        subject: "提测固件",
-        categoryIdentifier: "Task",
-        status: "已完成",
-        statusStageIdentifier: "3",
-        gmtModified: daysAgo(2),
-        module: "设备管理",
+        id: "task-progress",
+        subject: "设备协议联调",
+        workitemType: { name: "任务" },
+        status: { name: "进行中", statusStageIdentifier: "2" },
+        assignedTo: { name: "张三" },
+        gmtModified: daysAgo(40),
+        sprint: { id: SPRINT_DOING, name: "当前迭代" },
+        module: { name: "设备管理" },
       },
       {
-        identifier: "task-plan",
+        id: "task-old",
+        subject: "过期任务",
+        workitemType: { name: "任务" },
+        status: { name: "待处理" },
+        gmtModified: daysAgo(40),
+        sprint: { id: "sprint-old", name: "上个迭代" },
+        module: { name: "设备管理" },
+      },
+      {
+        id: "task-done",
+        subject: "提测固件",
+        workitemType: { name: "任务" },
+        status: { name: "已完成", statusStageIdentifier: "3" },
+        assignedTo: { name: "李四" },
+        gmtModified: daysAgo(2),
+        module: { name: "设备管理" },
+      },
+      {
+        id: "task-plan",
         subject: "下周压测",
-        categoryIdentifier: "Task",
-        status: "待处理",
+        workitemType: { name: "任务" },
+        status: { name: "待处理" },
         gmtModified: daysAgo(1),
-        module: "设备管理",
+        module: { name: "设备管理" },
       },
     ],
     Bug: [
       {
-        identifier: "bug-1",
+        id: "bug-1",
         subject: "登录失败",
-        categoryIdentifier: "Bug",
-        status: "待处理",
+        workitemType: { name: "缺陷" },
+        status: { name: "待处理" },
         gmtModified: daysAgo(3),
-        module: "设备管理",
+        module: { name: "设备管理" },
       },
     ],
   };
@@ -225,14 +263,7 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> 
     }
 
     if (url.pathname === YUNXIAO_PATHS.listProjects(ORG)) {
-      expect(url.searchParams.get("category")).toBe("Project");
-      return jsonResponse({
-        success: true,
-        nextToken: "",
-        projects: [
-          { identifier: SPACE, name: PROJECT, categoryIdentifier: "Project" },
-        ],
-      });
+      throw new Error("ListProjects should be skipped when YUNXIAO_SPACE_ID is set");
     }
 
     if (url.pathname === YUNXIAO_PATHS.listSprints(ORG)) {
@@ -251,16 +282,17 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> 
       expect(url.searchParams.get("spaceType")).toBe("Project");
       expect(url.searchParams.get("spaceIdentifier")).toBe(SPACE);
       const category = url.searchParams.get("category") || "";
+      expect(["Req"]).not.toContain(category);
       const token = url.searchParams.get("nextToken");
       const list = byCategory[category] || [];
-      if (category === "Req" && !token) {
+      if (category === "Task" && !token) {
         return jsonResponse({
           success: true,
           nextToken: "page-2",
           workitems: list.slice(0, 1),
         });
       }
-      if (category === "Req" && token === "page-2") {
+      if (category === "Task" && token === "page-2") {
         return jsonResponse({
           success: true,
           nextToken: "",
@@ -274,12 +306,12 @@ function createMockFetch(options?: { workitems?: Record<string, MockWorkitem[]> 
       return jsonResponse({
         success: true,
         workitem: {
-          identifier: "missing-refetch",
+          id: "missing-refetch",
           subject: "补拉工作项",
-          categoryIdentifier: "Req",
-          status: "进行中",
+          workitemType: { name: "任务" },
+          status: { name: "进行中" },
           gmtModified: nowMs,
-          module: "补拉模块",
+          module: { name: "补拉模块" },
         },
       });
     }
@@ -337,7 +369,7 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(fetched).toBe(false);
   });
 
-  it("GETs workitems via official ListProjects/ListWorkitems paths and Bearer PAT", async () => {
+  it("GETs Task workitems via ListWorkitems with fixed space id and Bearer PAT", async () => {
     const { fetchImpl, calls } = createMockFetch();
     const itemsStore = createMemoryYunxiaoItemStore();
     const { base } = await startApi({
@@ -350,13 +382,14 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = body.items.map((row: { id: string }) => row.id);
-    expect(ids).toEqual(expect.arrayContaining(["req-progress", "task-done", "task-plan", "bug-1"]));
-    expect(ids).not.toContain("req-old");
-    const progress = body.items.find((row: { id: string }) => row.id === "req-progress");
+    expect(ids).toEqual(expect.arrayContaining(["task-progress", "task-done", "task-plan", "bug-1"]));
+    expect(ids).not.toContain("task-old");
+    const progress = body.items.find((row: { id: string }) => row.id === "task-progress");
     expect(progress).toMatchObject({
       title: "设备协议联调",
-      category: "Req",
+      category: "任务",
       status: "进行中",
+      assignee: "张三",
       module: "设备管理",
       sprint: "当前迭代",
     });
@@ -364,17 +397,19 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(calls.some((c) => c.authorization === `Bearer ${PAT}`)).toBe(true);
     expect(calls.map((c) => new URL(c.url).pathname)).toEqual(
       expect.arrayContaining([
-        YUNXIAO_PATHS.listProjects(ORG),
         YUNXIAO_PATHS.listWorkitems(ORG),
         YUNXIAO_PATHS.listSprints(ORG),
       ]),
     );
+    expect(calls.map((c) => new URL(c.url).pathname)).not.toContain(YUNXIAO_PATHS.listProjects(ORG));
+    expect(calls.every((c) => new URL(c.url).searchParams.get("category") !== "Req")).toBe(true);
     expect(calls.map((c) => new URL(c.url).origin).every((origin) => origin === YUNXIAO_OPENAPI_BASE)).toBe(
       true,
     );
 
-    const cached = await itemsStore.getMany(["req-progress"]);
+    const cached = await itemsStore.getMany(["task-progress"]);
     expect(cached[0]?.title).toBe("设备协议联调");
+    expect(cached[0]?.assignee).toBe("张三");
   });
 
   it("POSTs import from cache into /api/reports create path", async () => {

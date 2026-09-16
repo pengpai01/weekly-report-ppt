@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import mysql from "mysql2/promise";
 import {
   DEFAULT_YUNXIAO_PROJECT_NAME,
+  DEFAULT_YUNXIAO_SPACE_ID,
   DEFAULT_YUNXIAO_UPDATED_WITHIN_DAYS,
   mysqlConfigFromEnv,
   TABLE_PREFIX,
@@ -12,6 +13,7 @@ import {
 
 export {
   DEFAULT_YUNXIAO_PROJECT_NAME,
+  DEFAULT_YUNXIAO_SPACE_ID,
   DEFAULT_YUNXIAO_UPDATED_WITHIN_DAYS,
   YUNXIAO_ITEMS_TABLE,
   YUNXIAO_OPENAPI_BASE,
@@ -26,7 +28,8 @@ if (!YUNXIAO_ITEMS_TABLE.startsWith(TABLE_PREFIX)) {
 
 const MAX_PAGES = 50;
 const PAGE_SIZE = 200;
-const PRIMARY_CATEGORIES = ["Req", "Task"];
+/** Live probe: last 14 days is ~158 Task, Req=0. Fetch Task primarily; Bug optional. */
+const PRIMARY_CATEGORIES = ["Task"];
 const SECONDARY_CATEGORIES = ["Bug"];
 
 /** devops/2021-06-25 ListProjects / ListWorkitems / ListSprints / GetWorkItemInfo */
@@ -118,36 +121,35 @@ function joinUrl(base, path) {
   return `${root}${suffix}`;
 }
 
+function fieldName(value) {
+  if (value == null) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return optionalString(value.name) || optionalString(value.displayName);
+  }
+  return optionalString(value);
+}
+
+function fieldId(value) {
+  if (value == null) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return optionalString(value.id) || optionalString(value.identifier);
+  }
+  return optionalString(value);
+}
+
 function extractModule(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const direct = optionalString(raw.module) || optionalString(raw.moduleName);
-  if (direct) return direct;
-  const fields = raw.customFields;
-  if (Array.isArray(fields)) {
-    for (const field of fields) {
-      const id = String(field?.fieldIdentifier || field?.fieldClassName || "").toLowerCase();
-      const name = String(field?.fieldName || field?.name || "").toLowerCase();
-      const isModule =
-        id === "module" ||
-        id.includes("module") ||
-        name.includes("module") ||
-        name.includes("模块");
-      if (!isModule) continue;
-      const display =
-        field?.valueList?.[0]?.displayValue ||
-        field?.valueList?.[0]?.value ||
-        field?.value;
-      const text = optionalString(display);
-      if (text) return text;
-    }
-  }
-  return optionalString(raw.spaceName);
+  return fieldName(raw.module) || optionalString(raw.moduleName);
 }
 
 function sprintIdsOf(raw) {
   if (!raw || typeof raw !== "object") return [];
   if (Array.isArray(raw.sprint)) {
-    return raw.sprint.map((id) => optionalString(id)).filter(Boolean);
+    return raw.sprint.map((entry) => fieldId(entry) || optionalString(entry)).filter(Boolean);
+  }
+  if (raw.sprint && typeof raw.sprint === "object") {
+    const id = fieldId(raw.sprint);
+    return id ? [id] : [];
   }
   const single = optionalString(raw.sprintIdentifier);
   if (!single) return [];
@@ -156,24 +158,32 @@ function sprintIdsOf(raw) {
 
 export function normalizeYunxiaoWorkitem(raw, sprintNames = {}) {
   if (!raw || typeof raw !== "object") return null;
-  const id = optionalString(raw.identifier) || optionalString(raw.id);
+  const id = optionalString(raw.id) || optionalString(raw.identifier);
   if (!id) return null;
   const ids = sprintIdsOf(raw);
   const sprintName =
-    ids.map((sid) => sprintNames[sid]).find(Boolean) ||
+    fieldName(raw.sprint) ||
     optionalString(raw.sprintName) ||
-    ids[0] ||
+    ids.map((sid) => sprintNames[sid]).find(Boolean) ||
     null;
+  const statusObj = raw.status && typeof raw.status === "object" ? raw.status : null;
   return {
     id,
     title: optionalString(raw.subject) || optionalString(raw.title) || "",
-    category: optionalString(raw.categoryIdentifier) || optionalString(raw.category) || "",
-    status: optionalString(raw.status) || "",
+    category:
+      fieldName(raw.workitemType) ||
+      optionalString(raw.categoryIdentifier) ||
+      optionalString(raw.category) ||
+      "",
+    status: fieldName(raw.status) || (typeof raw.status === "string" ? optionalString(raw.status) : "") || "",
     module: extractModule(raw),
-    assignee: optionalString(raw.assignedTo) || optionalString(raw.assignee),
+    assignee: fieldName(raw.assignedTo) || (typeof raw.assignedTo === "string" ? optionalString(raw.assignedTo) : null),
     sprint: sprintName,
     updatedAt: toIsoFromYunxiao(raw.gmtModified ?? raw.updatedAt ?? raw.gmtCreate),
-    statusStageIdentifier: optionalString(raw.statusStageIdentifier),
+    statusStageIdentifier:
+      optionalString(statusObj?.statusStageIdentifier) ||
+      optionalString(statusObj?.stageId) ||
+      optionalString(raw.statusStageIdentifier),
     raw,
   };
 }
@@ -225,17 +235,32 @@ function isInProgress(status, stage) {
   );
 }
 
+function categoryKind(item) {
+  const raw = item?.raw && typeof item.raw === "object" ? item.raw : {};
+  const ident = String(
+    raw.categoryIdentifier || raw.workitemType?.identifier || raw.workitemType?.id || "",
+  ).toLowerCase();
+  const name = String(item?.category || raw.workitemType?.name || "").toLowerCase();
+  const blob = `${ident} ${name}`;
+  if (ident === "bug" || name === "bug" || blob.includes("缺陷")) return "Bug";
+  if (ident === "req" || name === "req" || blob.includes("需求")) return "Req";
+  if (ident === "task" || name === "task" || blob.includes("任务")) return "Task";
+  return ident || name || "Task";
+}
+
 export function classifyYunxiaoItem(item) {
-  const category = String(item?.category || "").trim();
+  const kind = categoryKind(item);
   const status = item?.status || "";
-  const stage = String(item?.statusStageIdentifier ?? item?.raw?.statusStageIdentifier ?? "");
+  const stage = String(
+    item?.statusStageIdentifier ??
+      item?.raw?.status?.statusStageIdentifier ??
+      item?.raw?.statusStageIdentifier ??
+      "",
+  );
   if (isCancelled(status, stage)) return "skip";
-  if (category === "Bug" || isBlocked(status)) return "issues";
-  if (category === "Req" || category === "Task") {
-    if (isDone(status, stage) || isInProgress(status, stage)) return "projects";
-    return "nextWeek";
-  }
-  return "skip";
+  if (kind === "Bug" || isBlocked(status)) return "issues";
+  if (isDone(status, stage) || isInProgress(status, stage)) return "projects";
+  return "nextWeek";
 }
 
 function groupKey(item) {
@@ -434,6 +459,7 @@ export function createYunxiaoClient(options) {
   const orgId = options.orgId;
   const pat = options.pat;
   const projectName = options.projectName || DEFAULT_YUNXIAO_PROJECT_NAME;
+  const spaceId = optionalString(options.spaceId) || DEFAULT_YUNXIAO_SPACE_ID;
   const baseUrl = options.baseUrl || YUNXIAO_OPENAPI_BASE;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") {
@@ -509,6 +535,9 @@ export function createYunxiaoClient(options) {
   }
 
   async function resolveProject() {
+    if (spaceId) {
+      return { spaceIdentifier: spaceId, name: projectName };
+    }
     const projects = await listProjects();
     const wanted = projectName.trim();
     const exact = projects.find((p) => optionalString(p.name) === wanted);
@@ -569,13 +598,19 @@ export function createYunxiaoClient(options) {
     const sprints = await listSprints(project.spaceIdentifier);
     const sprintNames = Object.fromEntries(
       sprints
-        .map((sprint) => [optionalString(sprint.identifier), optionalString(sprint.name)])
+        .map((sprint) => [
+          fieldId(sprint) || optionalString(sprint.identifier),
+          fieldName(sprint) || optionalString(sprint.name),
+        ])
         .filter(([id, name]) => id && name),
     );
     const currentSprintIds = new Set(
       sprints
-        .filter((sprint) => String(sprint.status || "").toUpperCase() === "DOING")
-        .map((sprint) => optionalString(sprint.identifier))
+        .filter((sprint) => {
+          const st = (fieldName(sprint.status) || optionalString(sprint.status) || "").toUpperCase();
+          return st === "DOING";
+        })
+        .map((sprint) => fieldId(sprint) || optionalString(sprint.identifier))
         .filter(Boolean),
     );
     const cutoff = Date.now() - Number(updatedWithinDays) * 24 * 60 * 60 * 1000;
@@ -610,6 +645,7 @@ export function createYunxiaoClient(options) {
   return {
     orgId,
     projectName,
+    spaceId,
     baseUrl,
     request,
     listProjects,

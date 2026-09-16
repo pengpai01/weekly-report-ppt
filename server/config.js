@@ -16,6 +16,8 @@ export const YUNXIAO_ITEMS_TABLE = "wr_yunxiao_items";
 /** Official devops/2021-06-25 OpenAPI host for PAT Bearer calls. */
 export const YUNXIAO_OPENAPI_BASE = "https://openapi-rdc.aliyuncs.com";
 export const DEFAULT_YUNXIAO_PROJECT_NAME = "DNK-设备软件";
+/** DNK-设备软件 (CFRK) projex spaceIdentifier from live probe. */
+export const DEFAULT_YUNXIAO_SPACE_ID = "6230f5b04297236a20e79654d4";
 export const DEFAULT_YUNXIAO_UPDATED_WITHIN_DAYS = 14;
 
 export function assertInsideProject(target, label = "path") {
@@ -50,6 +52,7 @@ export function yunxiaoConfigFromEnv(source = process.env) {
   const pat = source.YUNXIAO_PAT?.trim() ?? "";
   const projectName =
     source.YUNXIAO_PROJECT_NAME?.trim() || DEFAULT_YUNXIAO_PROJECT_NAME;
+  const spaceId = source.YUNXIAO_SPACE_ID?.trim() || DEFAULT_YUNXIAO_SPACE_ID;
   const missing = [];
   if (!orgId) missing.push("YUNXIAO_ORG_ID");
   if (!pat) missing.push("YUNXIAO_PAT");
@@ -64,6 +67,7 @@ export function yunxiaoConfigFromEnv(source = process.env) {
     orgId,
     pat,
     projectName,
+    spaceId,
     baseUrl: YUNXIAO_OPENAPI_BASE,
   };
 }

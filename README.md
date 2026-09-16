@@ -51,6 +51,7 @@ npm start
 | `YUNXIAO_ORG_ID` | 云效企业 id（只读导入）。示例值仅用于文档：`62bcfcb73e81781f3ad1d7d7` |
 | `YUNXIAO_PAT` | 云效个人访问令牌，作为 `Authorization: Bearer` 调用 OpenAPI。**不要提交** |
 | `YUNXIAO_PROJECT_NAME` | 可选，默认 `DNK-设备软件` |
+| `YUNXIAO_SPACE_ID` | 可选，项目 spaceIdentifier。默认 `6230f5b04297236a20e79654d4`（DNK-设备软件 / CFRK）。有值时不再按名称搜索项目 |
 
 浏览器 `localStorage` 只作缓存；刷新或同机其它浏览器访问同一服务时以 MySQL 为准。
 
@@ -64,9 +65,9 @@ npm test
 
 ### 云效只读导入
 
-从云效（devops/2021-06-25 `ListProjects` / `ListWorkitems`）拉取当前迭代或近 N 天更新的工作项，写入 `wr_yunxiao_items` 缓存，再映射成周报草稿。不向云效回写。
+从云效（devops/2021-06-25 `ListWorkitems`）按固定 `YUNXIAO_SPACE_ID` 拉取近 N 天或当前迭代的 **Task**（Bug 可选），写入 `wr_yunxiao_items` 缓存，再映射成周报草稿。不向云效回写。
 
-1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_PROJECT_NAME`）。
+1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_PROJECT_NAME`）。
 2. `GET /api/yunxiao/workitems` 同步并返回缓存项。
 3. `POST /api/yunxiao/import` 用选中的 id 创建周报。
 4. `GET /api/reports/:id` 核对草稿。
