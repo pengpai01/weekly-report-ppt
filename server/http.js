@@ -1,4 +1,13 @@
 import {
+  cancelIngestPreview,
+  confirmIngestPreview,
+  extractMultipartFile,
+  readRequestBuffer,
+  resolveIngestRawStore,
+  resolvePreviewStore,
+  uploadIngestFile,
+} from "./ingest.js";
+import {
   importYunxiaoWorkitems,
   parseUpdatedWithinDays,
   resolveYunxiaoClient,
@@ -82,6 +91,53 @@ export async function routeApi(store, req, res, deps = {}) {
   }
 
   try {
+    if (pathname === "/api/ingest/upload") {
+      if (req.method === "POST") {
+        const buffer = await readRequestBuffer(req);
+        const file = extractMultipartFile(buffer, req.headers["content-type"]);
+        const preview = await uploadIngestFile({
+          buffer: file.buffer,
+          filename: file.filename,
+          contentType: file.contentType,
+          previewStore: resolvePreviewStore(deps),
+        });
+        send(res, 200, preview);
+        return true;
+      }
+      send(res, 405, { error: "Method not allowed" });
+      return true;
+    }
+
+    if (pathname === "/api/ingest/confirm") {
+      if (req.method === "POST") {
+        const body = await parseJsonBody(req);
+        const report = await confirmIngestPreview({
+          body,
+          previewStore: resolvePreviewStore(deps),
+          ingestStore: resolveIngestRawStore(deps),
+          reportStore: store,
+        });
+        send(res, 201, report);
+        return true;
+      }
+      send(res, 405, { error: "Method not allowed" });
+      return true;
+    }
+
+    if (pathname === "/api/ingest/cancel") {
+      if (req.method === "POST") {
+        const body = await parseJsonBody(req);
+        await cancelIngestPreview({
+          body,
+          previewStore: resolvePreviewStore(deps),
+        });
+        sendNoContent(res);
+        return true;
+      }
+      send(res, 405, { error: "Method not allowed" });
+      return true;
+    }
+
     if (pathname === "/api/yunxiao/workitems") {
       if (req.method === "GET") {
         const days = parseUpdatedWithinDays(requestUrl(req).searchParams.get("updatedWithinDays"));

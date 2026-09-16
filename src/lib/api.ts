@@ -3,10 +3,11 @@ import type { Report, YunxiaoWorkItemList } from "../types";
 type ApiError = Error & { status?: number };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(url, {
     ...init,
     headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !isForm ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
   });
@@ -58,6 +59,49 @@ export function importYunxiaoWorkItems(itemIds: string[], reportPartial?: Partia
       itemIds,
       ...(reportPartial ? { reportPartial } : {}),
     }),
+  });
+}
+
+export type IngestPreviewRow = {
+  row: number;
+  ok: boolean;
+  error?: string;
+  title: string;
+  status: string;
+  module?: string;
+  owner?: string;
+  detail?: string;
+  planDate?: string;
+  sourceId?: string;
+};
+
+export type IngestPreview = {
+  previewId: string;
+  rows: IngestPreviewRow[];
+  summary: { total: number; ok: number; error: number };
+};
+
+export function uploadIngestFile(file: File | Blob, filename?: string) {
+  const form = new FormData();
+  if (filename) form.append("file", file, filename);
+  else form.append("file", file);
+  return request<IngestPreview>("/api/ingest/upload", { method: "POST", body: form });
+}
+
+export function confirmIngestPreview(previewId: string, reportPartial?: Partial<Report>) {
+  return request<Report>("/api/ingest/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      previewId,
+      ...(reportPartial ? { reportPartial } : {}),
+    }),
+  });
+}
+
+export function cancelIngestPreview(previewId: string) {
+  return request<void>("/api/ingest/cancel", {
+    method: "POST",
+    body: JSON.stringify({ previewId }),
   });
 }
 

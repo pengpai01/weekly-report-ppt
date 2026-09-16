@@ -47,7 +47,7 @@ npm start
 | `PORT` | 监听端口，默认 `5174` |
 | `SERVICE_NAME` | 进程名，默认 `weekly-report-ppt` |
 | `DATA_DIR` | 仅日志等附属文件，必须位于项目目录内，默认 `data` |
-| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | 远程 MySQL。库使用 `grok_bot`；本应用只建/用 `wr_` 前缀表（`wr_reports`、`wr_yunxiao_items`） |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | 远程 MySQL。库使用 `grok_bot`；本应用只建/用 `wr_` 前缀表（`wr_reports`、`wr_yunxiao_items`、`wr_ingest_raw`） |
 | `YUNXIAO_ORG_ID` | 云效企业 id（只读导入）。示例值仅用于文档：`62bcfcb73e81781f3ad1d7d7` |
 | `YUNXIAO_PAT` | 云效个人访问令牌。请求头 `x-yunxiao-token`。**不要提交** |
 | `YUNXIAO_API_BASE_URL` | 可选，默认 `https://openapi-rdc.aliyuncs.com` |
@@ -62,7 +62,7 @@ npm start
 npm test
 ```
 
-含幻灯片页序、PPTX 结构、内存 CRUD、云效映射与（mock OpenAPI 的）导入 HTTP。若 `.env` 中 MySQL 可达，还会跑 `wr_reports` 集成测试。
+含幻灯片页序、PPTX 结构、内存 CRUD、云效映射与（mock OpenAPI 的）导入 HTTP、xlsx/csv 上传预览/确认/取消与去重。若 `.env` 中 MySQL 可达，还会跑 `wr_reports` / `wr_ingest_raw` 集成测试。
 
 ### 云效只读导入
 
@@ -80,6 +80,33 @@ curl -s http://localhost:5174/api/reports/<id>
 ```
 
 OpenAPI 基址默认 `https://openapi-rdc.aliyuncs.com`，请求头 `x-yunxiao-token: %YUNXIAO_PAT%`。若返回 HTML 登录页，接口会 502，而不是空列表。
+
+### 表格上传（xlsx / csv）
+
+`POST /api/ingest/upload`（multipart 字段名 `file`）解析后返回预览，**不写** `wr_reports`。必填列：`事项标题`、`状态`。可选：`模块`、`负责人`、`详情`、`计划日期`、`来源ID`。缺列的行 `ok: false` 并带 `error`，确认时不会进入周报正文。
+
+`POST /api/ingest/confirm` `{ "previewId" }`：先把全部预览行（含错误行）写入 `wr_ingest_raw`（`source=upload`），再把成功行映射成**新**周报草稿并返回 201。映射与云效相同：进行中/已完成 → `projects`；阻塞/Bug → `issues`；未完成/计划 → `nextWeek`。空模块归入 `其他`；标题 `【模块】事项` 会按括号归组并合并同名项目。去重：有 `来源ID` 时按 `(source, sourceId)`；否则同一项目下全文相同则合并。同一文件再次上传会再记一笔 raw（可追溯），但不会重复生成事项。
+
+`POST /api/ingest/cancel` `{ "previewId" }` 返回 204，丢弃预览，不写 `wr_reports` / `wr_ingest_raw`。预览在内存中，约 30 分钟过期。
+
+把下面存为 `items.csv`（UTF-8）后执行：
+
+```
+事项标题,状态,模块,负责人,详情,计划日期,来源ID
+联调设备协议,进行中,设备管理,张三,与硬件联调,2026-09-20,dev-1
+登录失败,Bug,设备管理,,,,bug-1
+下周压测,待处理,设备管理,,,,plan-1
+,进行中,设备管理,,,,bad-row
+```
+
+```bat
+curl -s -F "file=@items.csv" http://localhost:5174/api/ingest/upload
+curl -s -X POST http://localhost:5174/api/ingest/confirm -H "Content-Type: application/json" -d "{\"previewId\":\"<preview-id>\"}"
+curl -s http://localhost:5174/api/reports/<id>
+curl -s -o NUL -w "%%{http_code}" -X POST http://localhost:5174/api/ingest/cancel -H "Content-Type: application/json" -d "{\"previewId\":\"<preview-id>\"}"
+```
+
+xlsx 同样用 `-F "file=@items.xlsx"`。确认后 `GET /api/reports/<id>` 应只有成功行；错误行只出现在预览和 `wr_ingest_raw`。取消后 `GET /api/reports` 不应多出草稿。重复确认同一 `previewId` 返回 404。
 
 ### 手动核对草稿持久化
 
@@ -100,9 +127,9 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 
 - 文件只出现在 `E:\grok_bot` 及其子目录（`data\`、`node_modules\`、`dist\`、`.env`）。`DATA_DIR` 若指向项目外会启动失败。
 - 独立端口（默认 5174）与服务名 `weekly-report-ppt`，不占用其它项目的端口。
-- 数据库：只连接 `.env` 指定的 `grok_bot`；迁移仅为 `CREATE TABLE IF NOT EXISTS wr_reports` 与 `wr_yunxiao_items`。不建库、不改其它表、不碰其它 schema。
+- 数据库：只连接 `.env` 指定的 `grok_bot`；迁移仅为 `CREATE TABLE IF NOT EXISTS wr_reports`、`wr_yunxiao_items`、`wr_ingest_raw`。不建库、不改其它表、不碰其它 schema。
 - 依赖只安装到本项目 `node_modules`（`npm install`，不要 `-g`）。
-- **回滚**：停掉本进程；需要时可删本项目目录；SQL 只执行 `server/rollback.sql`（`DROP TABLE IF EXISTS wr_yunxiao_items` / `wr_reports`）。不要 `DROP DATABASE grok_bot`。
+- **回滚**：停掉本进程；需要时可删本项目目录；SQL 只执行 `server/rollback.sql`（`DROP TABLE IF EXISTS wr_ingest_raw` / `wr_yunxiao_items` / `wr_reports`）。不要 `DROP DATABASE grok_bot`。
 
 ## 使用路径（Happy path）
 
@@ -119,8 +146,8 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 
 - Vite + React 19 + TypeScript
 - 客户端 `pptxgenjs` 生成真实 `.pptx`
-- 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`
-- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`
+- 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`，上传审计表 `wr_ingest_raw`
+- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`
 
 ## 二期（本 MVP 明确不做）
 

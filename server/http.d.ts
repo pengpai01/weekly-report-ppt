@@ -6,6 +6,8 @@ export type ApiRouteDeps = {
   yunxiaoFetch?: typeof fetch;
   yunxiaoClient?: unknown;
   yunxiaoItems?: unknown;
+  ingestStore?: unknown;
+  previewStore?: unknown;
 };
 
 export function routeApi(

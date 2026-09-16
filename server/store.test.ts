@@ -5,6 +5,7 @@ import {
   assertInsideProject,
   mysqlConfigFromEnv,
   PROJECT_ROOT,
+  INGEST_RAW_TABLE,
   REPORTS_TABLE,
   TABLE_PREFIX,
   YUNXIAO_ITEMS_TABLE,
@@ -22,6 +23,8 @@ describe("isolation constants", () => {
     expect(REPORTS_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
     expect(YUNXIAO_ITEMS_TABLE).toBe("wr_yunxiao_items");
     expect(YUNXIAO_ITEMS_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
+    expect(INGEST_RAW_TABLE).toBe("wr_ingest_raw");
+    expect(INGEST_RAW_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
   });
 
   it("rejects local paths outside the project root", () => {
