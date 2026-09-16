@@ -271,6 +271,17 @@ export function parseModuleFromTitle(title) {
   return name || "其他";
 }
 
+/** Prefer a non-empty module field (optional upload 模块 / Yunxiao module); else first 【…】; else 其他. */
+export function resolveProjectName(title, module) {
+  const cleaned = optionalString(module);
+  if (cleaned) {
+    const only = cleaned.match(/^【([^】]+)】$/);
+    const name = (only ? only[1] : cleaned).trim();
+    if (name) return name;
+  }
+  return parseModuleFromTitle(title);
+}
+
 /** Trailing tokens stripped before comparing project names in the projects bucket. */
 export const PROJECT_NAME_MERGE_SUFFIXES = ["管理", "系统", "平台", "软件", "模块"];
 const PROJECT_NAME_SUFFIX_RE = new RegExp(`(?:${PROJECT_NAME_MERGE_SUFFIXES.join("|")})+$`);
@@ -359,8 +370,9 @@ function projectStatusFor(items) {
 
 /**
  * Map cached Yunxiao work items into Report fields for store.create.
- * Classify by status first; only the projects bucket is grouped by 【module】
- * (then merged by suffix-strip / containment). Issues and nextWeek stay flat.
+ * Classify by status first; only the projects bucket is grouped by module name
+ * (prefer item.module, else first 【…】 in title, else 其他; then merged by
+ * suffix-strip / containment). Issues and nextWeek stay flat.
  * @param {object[]} items
  * @param {object} [reportPartial]
  * @param {object} [options]
@@ -386,7 +398,7 @@ export function mapYunxiaoItemsToReport(items, reportPartial = {}, options = {})
       nextWeekItems.push(item.title || item.id);
       continue;
     }
-    const name = parseModuleFromTitle(item.title);
+    const name = resolveProjectName(item.title, item.module);
     if (!projectsByModule.has(name)) projectsByModule.set(name, []);
     projectsByModule.get(name).push(item);
   }

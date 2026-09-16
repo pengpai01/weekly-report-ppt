@@ -119,6 +119,14 @@ describe("ingest parse", () => {
       project: "形态学",
       title: "联调",
     });
+    expect(resolveModuleAndTitle("联调设备协议", "设备管理")).toEqual({
+      project: "设备管理",
+      title: "联调设备协议",
+    });
+    expect(resolveModuleAndTitle("前缀【ERP】报表", "")).toEqual({
+      project: "ERP",
+      title: "前缀【ERP】报表",
+    });
     expect(composeFullText("联调", "细节")).toBe("联调\n细节");
   });
 });
@@ -131,6 +139,7 @@ describe("ingest confirm mapping", () => {
           CSV_HEADERS,
           "联调设备协议,进行中,设备管理,张三,与硬件联调,,dev-1",
           "提测固件,已完成,设备管理,,,,dev-2",
+          "动态学联调,处理中,动态学app,,,,dyn-1",
           "形态学标注,Done,,,无模块完成,,",
           "登录失败,Bug,设备管理,,,,bug-1",
           "供应链卡住,已阻塞,ERP,,,,blk-1",
@@ -143,21 +152,27 @@ describe("ingest confirm mapping", () => {
     );
     const mapped = mapIngestRowsToReport(parsed.rows.filter((row) => row.ok));
     const device = mapped.projects.find((p: { name: string }) => p.name === "设备管理");
+    const dyn = mapped.projects.find((p: { name: string }) => p.name === "动态学app");
     const other = mapped.projects.find((p: { name: string }) => p.name === "其他");
-    expect(device?.bullets).toEqual(["联调设备协议\n与硬件联调", "提测固件"]);
+    expect(device?.bullets).toEqual([
+      "[进行中·张三] 联调设备协议\n与硬件联调",
+      "[已完成] 提测固件",
+    ]);
     expect(device?.status).toBe("in_progress");
-    expect(other?.bullets).toEqual(["形态学标注\n无模块完成"]);
+    expect(dyn?.bullets).toEqual(["[处理中] 动态学联调"]);
+    expect(dyn?.status).toBe("in_progress");
+    expect(other?.bullets).toEqual(["[Done] 形态学标注\n无模块完成"]);
     expect(mapped.issues.empty).toBe(false);
     expect(mapped.issues.items.map((i: { text: string }) => i.text)).toEqual([
       "登录失败",
       "供应链卡住",
     ]);
-    expect(mapped.nextWeek).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ projectName: "设备管理", items: ["下周压测", "未完成文档"] }),
-        expect.objectContaining({ projectName: "发布", items: ["计划发布"] }),
-      ]),
-    );
+    expect(mapped.nextWeek.map((row: { projectName: string }) => row.projectName)).toEqual(["", "", ""]);
+    expect(mapped.nextWeek.map((row: { items: string[] }) => row.items)).toEqual([
+      ["下周压测"],
+      ["未完成文档"],
+      ["计划发布"],
+    ]);
   });
 
   it("merges the same module name into one project and dedupes sourceId / full text", () => {
@@ -178,7 +193,31 @@ describe("ingest confirm mapping", () => {
     const mapped = mapIngestRowsToReport(unique);
     expect(mapped.projects).toHaveLength(1);
     expect(mapped.projects[0].name).toBe("设备管理");
-    expect(mapped.projects[0].bullets).toEqual(["联调", "重复正文\n相同"]);
+    expect(mapped.projects[0].bullets).toEqual(["[进行中] 联调", "[进行中] 重复正文\n相同"]);
+  });
+
+  it("merges similar module names into the longer formal name for 处理中/已完成 rows", () => {
+    const parsed = parseIngestSpreadsheet(
+      Buffer.from(
+        [
+          "事项标题,状态,模块",
+          "协议联调,处理中,设备",
+          "提测固件,已完成,设备管理",
+          "形态学标注,处理中,形态学",
+          "形态学提测,已完成,形态学鉴定APP",
+        ].join("\n"),
+      ),
+      "merge.csv",
+    );
+    const mapped = mapIngestRowsToReport(parsed.rows.filter((row) => row.ok));
+    expect(mapped.projects).toHaveLength(2);
+    const device = mapped.projects.find((p: { name: string }) => p.name === "设备管理");
+    const app = mapped.projects.find((p: { name: string }) => p.name === "形态学鉴定APP");
+    expect(device?.bullets).toEqual(["[处理中] 协议联调", "[已完成] 提测固件"]);
+    expect(app?.bullets).toEqual(["[处理中] 形态学标注", "[已完成] 形态学提测"]);
+    expect(mapped.projects.map((p: { name: string }) => p.name)).not.toContain("设备");
+    expect(mapped.projects.map((p: { name: string }) => p.name)).not.toContain("形态学");
+    expect(mapped.nextWeek).toEqual([]);
   });
 });
 
@@ -300,7 +339,7 @@ describe("ingest HTTP API", () => {
         body: JSON.stringify({ previewId: firstPreview.previewId }),
       })
     ).json();
-    expect(firstReport.projects[0].bullets).toEqual(["联调"]);
+    expect(firstReport.projects[0].bullets).toEqual(["[进行中] 联调"]);
 
     const secondFile = csvFile(
       ["事项标题,状态,模块,来源ID", "联调,进行中,设备管理,same-1", "联调,进行中,设备管理,same-1"].join(
@@ -418,7 +457,9 @@ describe.skipIf(!mysqlStatus.ok)("MySQL wr_ingest_raw", () => {
       expect(raw).toHaveLength(2);
       expect(raw.map((row) => row.ok)).toEqual([true, false]);
       expect(raw[0].source).toBe("upload");
-      expect((report as unknown as { projects: { bullets: string[] }[] }).projects[0].bullets).toEqual(["联调"]);
+      expect((report as unknown as { projects: { bullets: string[] }[] }).projects[0].bullets).toEqual([
+        "[进行中] 联调",
+      ]);
     } finally {
       await ingestStore.close();
       await reportStore.close();

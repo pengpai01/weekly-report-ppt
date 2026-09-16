@@ -6,7 +6,7 @@ import {
   mysqlConfigFromEnv,
   TABLE_PREFIX,
 } from "./config.js";
-import { mapYunxiaoItemsToReport } from "./yunxiao.js";
+import { mapYunxiaoItemsToReport, resolveProjectName } from "./yunxiao.js";
 
 export { INGEST_RAW_TABLE };
 
@@ -116,20 +116,21 @@ export function stripBracketName(value) {
 }
 
 /**
- * Empty module → 其他. Titles like 【设备管理】联调 contribute the bracket name.
+ * Prefer optional 模块 when non-empty; else first 【…】 in the title; else 其他.
+ * Prefix 【模块】 is stripped from the display title; mid-title brackets stay.
  */
 export function resolveModuleAndTitle(title, module) {
-  const cleanedModule = stripBracketName(module);
   const text = optionalString(title);
-  if (cleanedModule) {
-    return { project: cleanedModule, title: text };
+  const project = resolveProjectName(text, module) || DEFAULT_EMPTY_MODULE;
+  if (stripBracketName(module)) {
+    return { project, title: text };
   }
   const prefixed = text.match(BRACKET_PREFIX);
   if (prefixed && prefixed[1].trim()) {
     const rest = prefixed[2].trim();
-    return { project: prefixed[1].trim(), title: rest || text };
+    return { project, title: rest || text };
   }
-  return { project: DEFAULT_EMPTY_MODULE, title: text };
+  return { project, title: text };
 }
 
 export function composeFullText(title, detail) {
@@ -329,6 +330,7 @@ export function ingestRowsToYunxiaoItems(rows) {
       category: isBug ? "Bug" : "Task",
       status: row.status,
       module: row.project || DEFAULT_EMPTY_MODULE,
+      assignee: row.owner || null,
     };
   });
 }

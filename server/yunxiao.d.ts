@@ -50,6 +50,10 @@ export function normalizeYunxiaoWorkitem(
 export function toPublicYunxiaoItem(item: YunxiaoItem): PublicYunxiaoItem;
 export function classifyYunxiaoItem(item: YunxiaoItem): "projects" | "issues" | "nextWeek" | "skip";
 export function parseModuleFromTitle(title: string | null | undefined): string;
+export function resolveProjectName(
+  title: string | null | undefined,
+  module?: string | null,
+): string;
 export const PROJECT_NAME_MERGE_SUFFIXES: readonly string[];
 export const PROJECT_NAME_ALIASES: Readonly<Record<string, string>>;
 export function applyProjectNameAlias(
