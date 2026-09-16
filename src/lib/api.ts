@@ -23,13 +23,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+function apiStatus(err: unknown): number | undefined {
+  return err instanceof Error ? (err as ApiError).status : undefined;
+}
+
+function apiMessage(err: unknown): string {
+  return err instanceof Error ? err.message.trim() : "";
+}
+
 export function yunxiaoErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.name === "AbortError") return fallback;
   if (err instanceof TypeError) {
     return "无法连接本机服务，请确认服务已启动后再试。";
   }
-  const status = err instanceof Error ? (err as ApiError).status : undefined;
-  const message = err instanceof Error ? err.message.trim() : "";
+  const status = apiStatus(err);
+  const message = apiMessage(err);
 
   if (status === 404 && (!message || /^not found$/i.test(message))) {
     return "云效导入服务暂不可用（接口未就绪或已下线）。";
@@ -44,6 +52,59 @@ export function yunxiaoErrorMessage(err: unknown, fallback: string): string {
     return "请在项目 .env 填写 YUNXIAO_ORG_ID 和 YUNXIAO_PAT 后重启服务。";
   }
   if (message) return message;
+  return fallback;
+}
+
+const HAS_CJK = /[\u3400-\u9fff]/;
+
+export function ingestErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.name === "AbortError") return fallback;
+  if (err instanceof TypeError) {
+    return "无法连接本机服务，请确认服务已启动后再试。";
+  }
+  const status = apiStatus(err);
+  const message = apiMessage(err);
+
+  if (/file must be \.xlsx or \.csv/i.test(message)) {
+    return "请上传 .xlsx 或 .csv 文件。";
+  }
+  if (/file has no rows/i.test(message)) {
+    return "文件没有数据行。";
+  }
+  if (/missing required columns/i.test(message)) {
+    return "缺少必填列：事项标题、状态。";
+  }
+  if (/workbook has no sheets/i.test(message)) {
+    return "工作簿没有工作表，请检查 xlsx 文件。";
+  }
+  if (/upload exceeds/i.test(message) || status === 413) {
+    return "文件过大，请压缩或删减行后再上传。";
+  }
+  if (
+    /missing multipart file field ['"]?file['"]?/i.test(message) ||
+    /expected multipart\/form-data/i.test(message)
+  ) {
+    return "请选择要上传的表格文件。";
+  }
+  if (/malformed multipart/i.test(message)) {
+    return "上传内容格式不正确，请重新选择文件。";
+  }
+  if (/previewid is required/i.test(message)) {
+    return "缺少预览编号，请重新上传。";
+  }
+  if (/preview not found/i.test(message)) {
+    return "预览已过期或不存在，请重新上传。";
+  }
+  if (status === 404 && (!message || /^not found$/i.test(message))) {
+    return "表格上传服务暂不可用（接口未就绪或已下线）。";
+  }
+  if (HAS_CJK.test(message)) return message;
+  if (status && status >= 500) {
+    return `服务异常（${status}），请稍后重试。`;
+  }
+  if (status && status >= 400) {
+    return `请求失败（${status}），请检查文件后重试。`;
+  }
   return fallback;
 }
 
