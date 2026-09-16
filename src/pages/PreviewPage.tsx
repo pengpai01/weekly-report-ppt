@@ -40,6 +40,7 @@ function PreviewWorkspace({ report }: { report: Report }) {
 
   const slides = report?.slides ?? [];
   const current = slides[Math.min(index, Math.max(slides.length - 1, 0))];
+  const brand = { department: report.department, title: report.title };
 
   const typeLabel = useMemo(() => (current ? slideTitle(current, index) : ""), [current, index]);
 
@@ -157,7 +158,7 @@ function PreviewWorkspace({ report }: { report: Report }) {
               onClick={() => setIndex(i)}
             >
               <SlideFrame mini>
-                <SlideView slide={slide} page={i + 1} total={slides.length} />
+                <SlideView slide={slide} page={i + 1} total={slides.length} brand={brand} />
               </SlideFrame>
               <div className="thumb-label">{i + 1}. {slideTitle(slide, i)}</div>
             </button>
@@ -166,7 +167,7 @@ function PreviewWorkspace({ report }: { report: Report }) {
         <main className="stage-col">
           {message ? <div className="warn" style={{ width: "min(100%, 960px)" }}>{message}</div> : null}
           <SlideFrame>
-            <SlideView slide={current} page={index + 1} total={slides.length} />
+            <SlideView slide={current} page={index + 1} total={slides.length} brand={brand} />
           </SlideFrame>
           <div className="inline-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => moveProject(-1)}>项目上移</button>
