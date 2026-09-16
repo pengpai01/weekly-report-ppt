@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
+import { ReportGate } from "../components/ReportGate";
 import { SlideFrame } from "../components/SlideFrame";
 import { SlideView, slideTitle } from "../components/SlideView";
 import { downloadPptx } from "../lib/exportPptx";
@@ -16,6 +17,7 @@ import type {
   PlanPayload,
   ProjectPayload,
   ProjectStatus,
+  Report,
   Slide,
 } from "../types";
 import { PROJECT_STATUS_LABEL } from "../types";
@@ -26,9 +28,12 @@ function as<T>(payload: Slide["payload"]): T {
 
 export function PreviewPage() {
   const { id } = useParams();
-  const { getReport, patch } = useReports();
+  return <ReportGate id={id}>{(report) => <PreviewWorkspace report={report} />}</ReportGate>;
+}
+
+function PreviewWorkspace({ report }: { report: Report }) {
+  const { patch, saveNow } = useReports();
   const navigate = useNavigate();
-  const report = id ? getReport(id) : undefined;
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -37,15 +42,6 @@ export function PreviewPage() {
   const current = slides[Math.min(index, Math.max(slides.length - 1, 0))];
 
   const typeLabel = useMemo(() => (current ? slideTitle(current, index) : ""), [current, index]);
-
-  if (!report) {
-    return (
-      <>
-        <AppHeader />
-        <div className="page"><div className="panel">找不到这份草稿。</div></div>
-      </>
-    );
-  }
 
   if (!slides.length) {
     return (
@@ -138,7 +134,12 @@ export function PreviewPage() {
           <h1>{report.title} · {report.department}</h1>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setMessage("草稿已自动保存在本机")}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              void saveNow(report.id).then(() => setMessage("草稿已保存到本机服务"));
+            }}
+          >
             保存草稿
           </button>
           <button className="btn btn-ghost btn-sm" onClick={regenerate}>再生成</button>

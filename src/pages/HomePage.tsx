@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
 import { continueFrom } from "../lib/report";
@@ -5,23 +6,46 @@ import { STATUS_LABEL } from "../lib/report";
 import { useReports } from "../store";
 
 export function HomePage() {
-  const { reports, create, remove } = useReports();
+  const { reports, create, remove, ready, error } = useReports();
   const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
   const sorted = [...reports].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-  const startNew = () => {
-    const report = create();
-    navigate(`/reports/${report.id}/meta`);
+  const startNew = async () => {
+    setBusy(true);
+    try {
+      const report = await create();
+      navigate(`/reports/${report.id}/meta`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "无法创建草稿，请确认本机服务已启动。");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const continueLast = () => {
+  const continueLast = async () => {
     const last = sorted[0];
     if (!last) {
       window.alert("暂无历史稿，请先新建一份汇报。");
       return;
     }
-    const next = create(continueFrom(last));
-    navigate(`/reports/${next.id}/meta`);
+    setBusy(true);
+    try {
+      const next = await create(continueFrom(last));
+      navigate(`/reports/${next.id}/meta`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "无法创建草稿，请确认本机服务已启动。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeOne = async (id: string) => {
+    try {
+      await remove(id);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "删除失败");
+    }
   };
 
   return (
@@ -37,17 +61,21 @@ export function HomePage() {
             </p>
           </div>
           <div className="hero-actions">
-            <button className="btn btn-primary" onClick={startNew}>
+            <button className="btn btn-primary" disabled={busy || !ready} onClick={() => void startNew()}>
               新建周/双周总结
             </button>
-            <button className="btn btn-secondary" onClick={continueLast}>
+            <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => void continueLast()}>
               从上次续写
             </button>
           </div>
         </section>
 
+        {error ? <div className="warn" style={{ marginBottom: 16 }}>{error}</div> : null}
+
         <h2 className="section-title">最近生成的汇报</h2>
-        {sorted.length === 0 ? (
+        {!ready ? (
+          <div className="panel empty">正在从本机服务读取草稿…</div>
+        ) : sorted.length === 0 ? (
           <div className="panel empty">还没有草稿。点击上方按钮开始第一份周报。</div>
         ) : (
           <div className="card-list">
@@ -77,7 +105,7 @@ export function HomePage() {
                   >
                     打开
                   </button>
-                  <button className="btn btn-danger btn-sm" onClick={() => remove(r.id)}>
+                  <button className="btn btn-danger btn-sm" onClick={() => void removeOne(r.id)}>
                     删除
                   </button>
                 </div>

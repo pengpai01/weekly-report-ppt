@@ -1,24 +1,19 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader, Stepper } from "../components/AppHeader";
+import { ReportGate } from "../components/ReportGate";
 import { defaultTitle } from "../lib/format";
 import { useReports } from "../store";
-import type { TemplateType } from "../types";
+import type { Report, TemplateType } from "../types";
 import { TEMPLATE_LABEL } from "../types";
 
 export function MetaPage() {
   const { id } = useParams();
-  const { getReport, patch } = useReports();
-  const navigate = useNavigate();
-  const report = id ? getReport(id) : undefined;
+  return <ReportGate id={id}>{(report) => <MetaForm report={report} />}</ReportGate>;
+}
 
-  if (!report) {
-    return (
-      <>
-        <AppHeader />
-        <div className="page"><div className="panel">找不到这份草稿。</div></div>
-      </>
-    );
-  }
+function MetaForm({ report }: { report: Report }) {
+  const { patch, saveNow } = useReports();
+  const navigate = useNavigate();
 
   const setTemplate = (templateType: TemplateType) => {
     patch(report.id, (r) => {
@@ -98,7 +93,9 @@ export function MetaPage() {
                   window.alert("请填写部门和日期");
                   return;
                 }
-                navigate(`/reports/${report.id}/materials`);
+                void saveNow(report.id).then(() =>
+                  navigate(`/reports/${report.id}/materials`),
+                );
               }}
             >
               下一步：录入素材
