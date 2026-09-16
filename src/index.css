@@ -594,7 +594,7 @@ a { color: inherit; }
   border-radius: 999px;
   font-weight: 700;
 }
-.ppt-body { padding: 32px 44px 52px; }
+.ppt-body { padding: 24px 44px 46px; max-height: 592px; overflow: hidden; }
 .bullet-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -634,14 +634,14 @@ a { color: inherit; }
 .ppt-table th {
   background: var(--navy);
   color: #fff;
-  padding: 14px;
-  font-size: 18px;
+  padding: 9px 12px;
+  font-size: 16px;
 }
 .ppt-table td {
   border: 1px solid var(--line);
-  padding: 12px 14px;
-  font-size: 18px;
-  vertical-align: top;
+  padding: 7px 12px;
+  font-size: 16px;
+  vertical-align: middle;
 }
 .ppt-table tr:nth-child(even) td { background: #f0f5fa; }
 .ppt-table .proj { font-weight: 700; width: 26%; }
