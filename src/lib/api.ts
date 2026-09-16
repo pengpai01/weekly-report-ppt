@@ -108,6 +108,18 @@ export function ingestErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+export function ingestRowError(error?: string): string {
+  if (!error?.trim()) return "未通过";
+  return error
+    .split(/;\s*/)
+    .map((part) => {
+      if (/事项标题 is required/i.test(part)) return "事项标题为必填";
+      if (/状态 is required/i.test(part)) return "状态为必填";
+      return part;
+    })
+    .join("；");
+}
+
 export function listYunxiaoWorkItems(updatedWithinDays = 14, init?: RequestInit) {
   const query = new URLSearchParams({ updatedWithinDays: String(updatedWithinDays) });
   return request<YunxiaoWorkItemList>(`/api/yunxiao/workitems?${query}`, init);
