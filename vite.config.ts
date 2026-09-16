@@ -26,9 +26,10 @@ function reportsApiPlugin(): Plugin {
 }
 
 const port = listenPort();
+const isVitest = Boolean(process.env.VITEST);
 
 export default defineConfig({
-  plugins: [react(), reportsApiPlugin()],
+  plugins: [react(), ...(isVitest ? [] : [reportsApiPlugin()])],
   server: {
     host: true,
     port,

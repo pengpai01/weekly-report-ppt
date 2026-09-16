@@ -7,6 +7,7 @@ import {
   PROJECT_ROOT,
   REPORTS_TABLE,
   TABLE_PREFIX,
+  YUNXIAO_ITEMS_TABLE,
 } from "./config.js";
 import {
   createMemoryReportStore,
@@ -19,6 +20,8 @@ describe("isolation constants", () => {
     expect(TABLE_PREFIX).toBe("wr_");
     expect(REPORTS_TABLE).toBe("wr_reports");
     expect(REPORTS_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
+    expect(YUNXIAO_ITEMS_TABLE).toBe("wr_yunxiao_items");
+    expect(YUNXIAO_ITEMS_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
   });
 
   it("rejects local paths outside the project root", () => {
