@@ -264,8 +264,17 @@ export function classifyYunxiaoItem(item) {
   return "nextWeek";
 }
 
-function groupKey(item) {
-  return optionalString(item.module) || "未分组";
+/** First `【…】` in the work-item title is the project/module name; otherwise 其他. */
+export function parseModuleFromTitle(title) {
+  const match = String(title || "").match(/【([^】]+)】/);
+  const name = match?.[1]?.trim();
+  return name || "其他";
+}
+
+function formatProjectBullet(item) {
+  const parts = [optionalString(item?.status), optionalString(item?.assignee)].filter(Boolean);
+  const prefix = parts.length ? `[${parts.join("·")}] ` : "";
+  return `${prefix}${item?.title || item?.id || ""}`;
 }
 
 function projectStatusFor(items) {
@@ -277,13 +286,14 @@ function projectStatusFor(items) {
 
 /**
  * Map cached Yunxiao work items into Report fields for store.create.
+ * Classify by status first; only the projects bucket is grouped by 【module】.
  * @param {object[]} items
  * @param {object} [reportPartial]
  */
 export function mapYunxiaoItemsToReport(items, reportPartial = {}) {
   const projectsByModule = new Map();
-  const nextWeekByModule = new Map();
   const issueItems = [];
+  const nextWeekItems = [];
 
   for (const item of items) {
     const bucket = classifyYunxiaoItem(item);
@@ -295,28 +305,29 @@ export function mapYunxiaoItemsToReport(items, reportPartial = {}) {
       });
       continue;
     }
-    const name = groupKey(item);
-    if (bucket === "projects") {
-      if (!projectsByModule.has(name)) projectsByModule.set(name, []);
-      projectsByModule.get(name).push(item);
+    if (bucket === "nextWeek") {
+      nextWeekItems.push(item.title || item.id);
       continue;
     }
-    if (!nextWeekByModule.has(name)) nextWeekByModule.set(name, []);
-    nextWeekByModule.get(name).push(item.title || item.id);
+    const name = parseModuleFromTitle(item.title);
+    if (!projectsByModule.has(name)) projectsByModule.set(name, []);
+    projectsByModule.get(name).push(item);
   }
 
   const projects = [...projectsByModule.entries()].map(([name, grouped]) => ({
     id: randomUUID(),
     name,
-    bullets: grouped.map((item) => item.title || item.id),
+    bullets: grouped.map((entry) => formatProjectBullet(entry)),
     status: projectStatusFor(grouped),
   }));
 
-  const nextWeek = [...nextWeekByModule.entries()].map(([projectName, titles]) => ({
-    id: randomUUID(),
-    projectName,
-    items: titles,
-  }));
+  const nextWeek = nextWeekItems.length
+    ? nextWeekItems.map((text) => ({
+        id: randomUUID(),
+        projectName: "",
+        items: [text],
+      }))
+    : [];
 
   const mapped = {
     projects,

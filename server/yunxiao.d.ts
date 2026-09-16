@@ -49,6 +49,7 @@ export function normalizeYunxiaoWorkitem(
 
 export function toPublicYunxiaoItem(item: YunxiaoItem): PublicYunxiaoItem;
 export function classifyYunxiaoItem(item: YunxiaoItem): "projects" | "issues" | "nextWeek" | "skip";
+export function parseModuleFromTitle(title: string | null | undefined): string;
 export function mapYunxiaoItemsToReport(
   items: YunxiaoItem[],
   reportPartial?: Record<string, unknown>,
