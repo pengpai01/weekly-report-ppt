@@ -22,8 +22,39 @@ describe("shared merge preview", () => {
     expect(html).toContain("撤销本次合并");
     expect(html).toContain("主项");
     expect(html).toContain("设备管理");
+    expect(html).toContain("1 条");
+    expect(html).toContain("展开");
+    expect(html).not.toContain("联调");
+    expect(html).not.toContain("进展要点");
+    expect(html).toContain("上移");
+    expect(html).toContain("下移");
     expect(html).toContain("登录失败");
     expect(html).toContain('disabled=""');
+  });
+
+  it("starts every project block collapsed with its name and item count", () => {
+    const html = renderToStaticMarkup(
+      <ZoneMergePanel
+        value={{
+          projects: [
+            { id: "p1", name: "设备管理", bullets: ["联调", "上线"] },
+            { id: "p2", name: "", bullets: ["", "待填"] },
+          ],
+          issues: { empty: true, items: [] },
+          nextWeek: [],
+        }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(html).toContain("设备管理");
+    expect(html).toContain("未命名项目");
+    expect(html).toContain("2 条");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("联调");
+    expect(html).not.toContain("待填");
+    expect(html).toContain("选择重要事项 设备管理");
+    expect(html).toContain("上移");
+    expect(html).toContain("下移");
   });
 
   it("renders the module auto-merge toggle checked by default at the call site", () => {
