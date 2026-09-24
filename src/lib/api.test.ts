@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cancelIngestPreview,
+  confirmImportFields,
   confirmIngestPreview,
   importYunxiaoWorkItems,
   ingestErrorMessage,
@@ -25,6 +26,26 @@ function jsonResponse(status: number, body: unknown) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+describe("confirm import contract", () => {
+  it("defaults moduleAutoMerge to true and omits materials", () => {
+    expect(confirmImportFields()).toEqual({ moduleAutoMerge: true });
+    expect(confirmImportFields({})).not.toHaveProperty("materials");
+    expect(confirmImportFields({})).not.toHaveProperty("undo");
+  });
+
+  it("sends moduleAutoMerge false and materials arrays only when provided", () => {
+    const materials = {
+      projects: [{ id: "p", name: "设备管理", bullets: ["联调"] }],
+      issues: [] as Report["issues"]["items"],
+      nextWeek: [],
+    };
+    expect(confirmImportFields({ moduleAutoMerge: false, materials })).toEqual({
+      moduleAutoMerge: false,
+      materials,
+    });
+  });
+});
 
 describe("yunxiao API client", () => {
   it("lists work items with updatedWithinDays=14", async () => {

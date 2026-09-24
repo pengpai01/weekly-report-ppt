@@ -143,23 +143,34 @@ export type ConfirmImportOptions = {
 };
 
 /**
+ * Shared by `POST /api/yunxiao/import` and `POST /api/ingest/confirm` (PR #17).
+ * `moduleAutoMerge` is optional and defaults to true. `materials` is omitted
+ * until the preview is edited. Draft merges do not use this; they PUT the report.
+ */
+export function confirmImportFields(options: ConfirmImportOptions = {}) {
+  const moduleAutoMerge = options.moduleAutoMerge !== false;
+  return {
+    moduleAutoMerge,
+    ...(options.materials ? { materials: options.materials } : {}),
+  };
+}
+
+/**
  * POST /api/yunxiao/import accepts `moduleAutoMerge` (boolean, default true)
  * and optional `materials` `{ projects, issues, nextWeek }` arrays.
- * @backend field already on main: do not send `autoMergeModules`.
+ * Do not send `autoMergeModules`.
  */
 export function importYunxiaoWorkItems(
   itemIds: string[],
   reportPartial?: Partial<Report>,
   options: ConfirmImportOptions = {},
 ) {
-  const moduleAutoMerge = options.moduleAutoMerge !== false;
   return request<Report>("/api/yunxiao/import", {
     method: "POST",
     body: JSON.stringify({
       itemIds,
-      moduleAutoMerge,
+      ...confirmImportFields(options),
       ...(reportPartial ? { reportPartial } : {}),
-      ...(options.materials ? { materials: options.materials } : {}),
     }),
   });
 }
@@ -190,20 +201,18 @@ export function uploadIngestFile(file: File | Blob, filename?: string) {
   return request<IngestPreview>("/api/ingest/upload", { method: "POST", body: form });
 }
 
-/** Same `moduleAutoMerge` / `materials` body as `importYunxiaoWorkItems`. */
+/** Same optional `moduleAutoMerge` / `materials` body as `importYunxiaoWorkItems`. */
 export function confirmIngestPreview(
   previewId: string,
   reportPartial?: Partial<Report>,
   options: ConfirmImportOptions = {},
 ) {
-  const moduleAutoMerge = options.moduleAutoMerge !== false;
   return request<Report>("/api/ingest/confirm", {
     method: "POST",
     body: JSON.stringify({
       previewId,
-      moduleAutoMerge,
+      ...confirmImportFields(options),
       ...(reportPartial ? { reportPartial } : {}),
-      ...(options.materials ? { materials: options.materials } : {}),
     }),
   });
 }
