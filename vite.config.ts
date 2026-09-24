@@ -43,9 +43,7 @@ export default defineConfig({
   define: {
     global: "globalThis",
   },
-  optimizeDeps: {
-    include: ["pptxgenjs"],
-  },
+  assetsInclude: ["**/*.pptx"],
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "server/**/*.test.ts"],

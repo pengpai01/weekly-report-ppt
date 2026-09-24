@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
 import { ReportGate } from "../components/ReportGate";
 import { SlideFrame } from "../components/SlideFrame";
-import { SlideView, slideTitle } from "../components/SlideView";
-import { downloadPptx } from "../lib/exportPptx";
+import { slideTitle } from "../components/SlideView";
+import { TemplateSlideView } from "../components/TemplateSlideView";
+import { downloadPptx, fillOfficialTemplate } from "../lib/exportPptx";
+import type { FilledSlide } from "../lib/templateSlides";
 import { generateSlides } from "../lib/generateSlides";
 import { emptyProject } from "../lib/report";
 import { formatDateLabel } from "../lib/format";
@@ -40,7 +42,27 @@ function PreviewWorkspace({ report }: { report: Report }) {
 
   const slides = report?.slides ?? [];
   const current = slides[Math.min(index, Math.max(slides.length - 1, 0))];
-  const brand = { department: report.department, title: report.title };
+  const [filled, setFilled] = useState<FilledSlide[] | null>(null);
+  const [fillError, setFillError] = useState("");
+  const fillKey = JSON.stringify(slides);
+
+  useEffect(() => {
+    let cancel = false;
+    fillOfficialTemplate(report)
+      .then((deck) => {
+        if (cancel) return;
+        setFilled(deck.slides);
+        setFillError("");
+      })
+      .catch((err: unknown) => {
+        if (!cancel) setFillError(err instanceof Error ? err.message : "模板预览失败");
+      });
+    return () => {
+      cancel = true;
+    };
+    // fillKey is the slide snapshot; report is the object from that same render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillKey]);
 
   const typeLabel = useMemo(() => (current ? slideTitle(current, index) : ""), [current, index]);
 
@@ -158,16 +180,21 @@ function PreviewWorkspace({ report }: { report: Report }) {
               onClick={() => setIndex(i)}
             >
               <SlideFrame mini>
-                <SlideView slide={slide} page={i + 1} total={slides.length} brand={brand} />
+                {filled?.[i] ? <TemplateSlideView slide={filled[i]} /> : <div className="tpl-slide" />}
               </SlideFrame>
               <div className="thumb-label">{i + 1}. {slideTitle(slide, i)}</div>
             </button>
           ))}
         </aside>
         <main className="stage-col">
+          {fillError ? <div className="warn" style={{ width: "min(100%, 960px)" }}>{fillError}</div> : null}
           {message ? <div className="warn" style={{ width: "min(100%, 960px)" }}>{message}</div> : null}
           <SlideFrame>
-            <SlideView slide={current} page={index + 1} total={slides.length} brand={brand} />
+            {filled?.[Math.min(index, filled.length - 1)] ? (
+              <TemplateSlideView slide={filled[Math.min(index, filled.length - 1)]} />
+            ) : (
+              <div className="tpl-slide tpl-pending">{fillError ? "模板预览失败" : "正在按官方模板排版…"}</div>
+            )}
           </SlideFrame>
           <div className="inline-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => moveProject(-1)}>项目上移</button>

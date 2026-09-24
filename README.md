@@ -2,7 +2,7 @@
 
 从项目要点素材生成可汇报的周报 / 双周报初稿，预览微调后导出标准 PPTX。
 
-对应产品文档：周/双周工作总结固定结构（封面 → 目录 → 重要事项 → 问题建议 → 下周计划 → 结束页）。导出版式对齐仓库内的官方模板 `templates/week-summary-template.pptx`：封面含标题、部门、日期（有汇报人时一并展示），目录与章节页，`projects[]` 一项目一页，问题页可 N/A，下周计划表最多 8 行且落在页脚之上，结束页无广告水印。蓝金企业风由代码绘制，运行时不读取该二进制。说明见 `templates/README.md`。不含年度甘特图（二期）。
+对应产品文档：周/双周工作总结固定结构（封面 → 目录 → 重要事项 → 问题建议 → 下周计划 → 结束页）。预览和导出共用 `fillOfficialTemplate()`：打开仓库内官方模板 `templates/week-summary-template.pptx` 填字，预览画的就是这份填好的文件，不是另一套版式。封面沿用模板图元（标题、部门、日期，有汇报人时写在同一信息块），项目进展页沿用模板正文页的标题样式、页边距和要点层级。目录、问题与下周计划套用同一正文页。结束页去掉模板里的 1ppt.com 广告。说明见 `templates/README.md`。不含年度甘特图（二期）。
 
 ## 本地运行
 
@@ -148,14 +148,14 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 4. 问题页可勾选「本期无（生成 N/A）」；下周计划可「从重要事项带入项目名」。
 5. 素材页与导入预览共用同一套分区多选。在「重要事项 / 存在问题与建议 / 下周工作计划」内至少选 2 条后点「合并」。标题取较长正式名，长度相同则取「主项」（默认先勾选的一条）。正文按勾选顺序拼接，每行前加 `[状态·负责人]`（缺的部分省略），并保留每条 `sourceId`。导入确认前可「撤销本次合并」（只在浏览器里；撤回到原预览后确认请求不带 `materials`）。素材页合并后的内容走已有的 `PUT /api/reports/:id`。确认入库后不能再全局撤销。不能跨分区合并。
 6. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
-7. **导出 PPTX**，用 PowerPoint 或 WPS 打开。导出字体指定为微软雅黑（`Microsoft YaHei`），在中文 Windows / WPS 下可正常显示。
+7. **导出 PPTX**，用 PowerPoint 或 WPS 打开。文件由 `templates/week-summary-template.pptx` 填字生成，封面和项目页版式跟官方模板一致，不含 1ppt.com 广告页。
 
 「从文本一键拆分」是规则启发式（识别 `一、项目` / `①②③`），拆分后需确认。项目卡片仍是主录入方式。
 
 ## 技术栈
 
 - Vite + React 19 + TypeScript
-- 客户端 `pptxgenjs` 生成真实 `.pptx`
+- 客户端用 JSZip 打开 `templates/week-summary-template.pptx` 填字后下载（pptxgenjs 不能打开已有 pptx）
 - 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`，上传审计表 `wr_ingest_raw`
 - API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`
 
