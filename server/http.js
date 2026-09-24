@@ -108,6 +108,8 @@ export async function routeApi(store, req, res, deps = {}) {
       return true;
     }
 
+    // Optional JSON: moduleAutoMerge?: boolean (default true),
+    // materials?: { projects, issues, nextWeek } (each an array; stored as-is).
     if (pathname === "/api/ingest/confirm") {
       if (req.method === "POST") {
         const body = await parseJsonBody(req);
@@ -150,6 +152,7 @@ export async function routeApi(store, req, res, deps = {}) {
       return true;
     }
 
+    // Same optional moduleAutoMerge / materials fields as POST /api/ingest/confirm.
     if (pathname === "/api/yunxiao/import") {
       if (req.method === "POST") {
         const body = await parseJsonBody(req);

@@ -6,7 +6,12 @@ import {
   mysqlConfigFromEnv,
   TABLE_PREFIX,
 } from "./config.js";
-import { mapYunxiaoItemsToReport, resolveProjectName } from "./yunxiao.js";
+import {
+  applyClientMaterials,
+  mapYunxiaoItemsToReport,
+  resolveConfirmMaterials,
+  resolveProjectName,
+} from "./yunxiao.js";
 
 export { INGEST_RAW_TABLE };
 
@@ -335,8 +340,8 @@ export function ingestRowsToYunxiaoItems(rows) {
   });
 }
 
-export function mapIngestRowsToReport(rows, reportPartial = {}) {
-  return mapYunxiaoItemsToReport(ingestRowsToYunxiaoItems(rows), reportPartial);
+export function mapIngestRowsToReport(rows, reportPartial = {}, options = {}) {
+  return mapYunxiaoItemsToReport(ingestRowsToYunxiaoItems(rows), reportPartial, options);
 }
 
 function dedupeKey(row, source = INGEST_SOURCE_UPLOAD) {
@@ -632,6 +637,10 @@ export async function uploadIngestFile({ buffer, filename, contentType, previewS
 
 export async function confirmIngestPreview({ body, previewStore, ingestStore, reportStore }) {
   const previewId = requirePreviewId(body);
+  // Optional: moduleAutoMerge (boolean, default true) and materials
+  // { projects, issues, nextWeek } arrays. materials is stored as the draft
+  // fields and skips server auto-merge. The flag is not persisted (no extras column).
+  const { moduleAutoMerge, materials } = resolveConfirmMaterials(body);
   const preview = await previewStore.get(previewId);
   if (!preview) throw httpError(404, "Preview not found");
 
@@ -668,7 +677,12 @@ export async function confirmIngestPreview({ body, previewStore, ingestStore, re
     preview.rows.filter((row) => row.ok),
     existingKeys,
   );
-  const report = await reportStore.create(mapIngestRowsToReport(uniqueOk, body.reportPartial));
+  const report = await reportStore.create(
+    applyClientMaterials(
+      mapIngestRowsToReport(uniqueOk, body.reportPartial, { moduleAutoMerge }),
+      materials,
+    ),
+  );
   await previewStore.delete(previewId);
   return report;
 }

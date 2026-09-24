@@ -373,17 +373,70 @@ function projectStatusFor(items) {
 }
 
 /**
+ * Optional fields on POST /api/ingest/confirm and POST /api/yunxiao/import.
+ * `moduleAutoMerge` defaults to true. `materials` (arrays projects/issues/nextWeek)
+ * is the client-merged draft and replaces server merge. The flag is not stored:
+ * wr_reports has no extras JSON column, and this change does not migrate.
+ * @param {object} [body]
+ */
+export function resolveConfirmMaterials(body) {
+  const source = body && typeof body === "object" ? body : {};
+  let moduleAutoMerge = true;
+  if (
+    Object.prototype.hasOwnProperty.call(source, "moduleAutoMerge") &&
+    source.moduleAutoMerge !== undefined
+  ) {
+    if (typeof source.moduleAutoMerge !== "boolean") {
+      throw httpError(400, "moduleAutoMerge must be a boolean");
+    }
+    moduleAutoMerge = source.moduleAutoMerge;
+  }
+  if (!Object.prototype.hasOwnProperty.call(source, "materials") || source.materials === undefined) {
+    return { moduleAutoMerge, materials: null };
+  }
+  const materials = source.materials;
+  if (
+    !materials ||
+    typeof materials !== "object" ||
+    Array.isArray(materials) ||
+    !Array.isArray(materials.projects) ||
+    !Array.isArray(materials.issues) ||
+    !Array.isArray(materials.nextWeek)
+  ) {
+    throw httpError(
+      400,
+      "materials must include array fields projects, issues, and nextWeek",
+    );
+  }
+  return { moduleAutoMerge, materials };
+}
+
+/** When the client already merged, keep those three fields and ignore server auto-merge. */
+export function applyClientMaterials(mapped, materials) {
+  if (!materials) return mapped;
+  return {
+    ...mapped,
+    projects: materials.projects,
+    issues: materials.issues,
+    nextWeek: materials.nextWeek,
+  };
+}
+
+/**
  * Map cached Yunxiao work items into Report fields for store.create.
  * Classify by status first; only the projects bucket is grouped by module name
- * (prefer item.module, else first 【…】 in title, else 其他; then merged by
- * suffix-strip / containment). Issues and nextWeek stay flat.
+ * (prefer item.module, else first 【…】 in title, else 其他). When moduleAutoMerge
+ * is not false (default true), similar names merge by suffix-strip / containment
+ * into the longer formal name. Issues and nextWeek stay flat.
  * @param {object[]} items
  * @param {object} [reportPartial]
  * @param {object} [options]
  * @param {Record<string, string>} [options.projectNameAliases]
+ * @param {boolean} [options.moduleAutoMerge] default true; false keeps module names as-is
  */
 export function mapYunxiaoItemsToReport(items, reportPartial = {}, options = {}) {
   const aliases = options.projectNameAliases ?? PROJECT_NAME_ALIASES;
+  const moduleAutoMerge = options.moduleAutoMerge !== false;
   const projectsByModule = new Map();
   const issueItems = [];
   const nextWeekItems = [];
@@ -407,14 +460,15 @@ export function mapYunxiaoItemsToReport(items, reportPartial = {}, options = {})
     projectsByModule.get(name).push(item);
   }
 
-  const projects = [...mergeProjectModuleGroups(projectsByModule, aliases).values()].map(
-    ({ name, items: grouped }) => ({
-      id: randomUUID(),
-      name,
-      bullets: grouped.map((entry) => formatProjectBullet(entry)),
-      status: projectStatusFor(grouped),
-    }),
-  );
+  const projectGroups = moduleAutoMerge
+    ? [...mergeProjectModuleGroups(projectsByModule, aliases).values()]
+    : [...projectsByModule.entries()].map(([name, grouped]) => ({ name, items: grouped }));
+  const projects = projectGroups.map(({ name, items: grouped }) => ({
+    id: randomUUID(),
+    name,
+    bullets: grouped.map((entry) => formatProjectBullet(entry)),
+    status: projectStatusFor(grouped),
+  }));
 
   const nextWeek = nextWeekItems.length
     ? nextWeekItems.map((text) => ({
@@ -813,6 +867,9 @@ export async function importYunxiaoWorkitems({
     throw httpError(400, "itemIds must be a non-empty array of strings");
   }
   const ids = itemIds.map((id) => id.trim());
+  // moduleAutoMerge (default true) and materials { projects, issues, nextWeek } arrays.
+  // materials replaces the mapped draft fields. The flag is not persisted.
+  const { moduleAutoMerge, materials } = resolveConfirmMaterials(body);
   let items = await itemsStore.getMany(ids);
   const missing = ids.filter((id) => !items.some((item) => item.id === id));
   if (missing.length) {
@@ -835,7 +892,10 @@ export async function importYunxiaoWorkitems({
     throw httpError(404, `Yunxiao items not found: ${stillMissing.join(", ")}`);
   }
   const ordered = ids.map((id) => items.find((item) => item.id === id));
-  const reportInput = mapYunxiaoItemsToReport(ordered, body.reportPartial);
+  const reportInput = applyClientMaterials(
+    mapYunxiaoItemsToReport(ordered, body.reportPartial, { moduleAutoMerge }),
+    materials,
+  );
   return reportStore.create(reportInput);
 }
 

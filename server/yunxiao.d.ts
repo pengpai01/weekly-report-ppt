@@ -70,10 +70,18 @@ export function mergeProjectModuleGroups(
   groups: Map<string, YunxiaoItem[]>,
   aliases?: Record<string, string>,
 ): Map<number, { name: string; items: YunxiaoItem[] }>;
+export function resolveConfirmMaterials(body?: object): {
+  moduleAutoMerge: boolean;
+  materials: { projects: unknown[]; issues: unknown[]; nextWeek: unknown[] } | null;
+};
+export function applyClientMaterials<T extends object>(
+  mapped: T,
+  materials: { projects: unknown[]; issues: unknown[]; nextWeek: unknown[] } | null,
+): T;
 export function mapYunxiaoItemsToReport(
   items: YunxiaoItem[],
   reportPartial?: Record<string, unknown>,
-  options?: { projectNameAliases?: Record<string, string> },
+  options?: { projectNameAliases?: Record<string, string>; moduleAutoMerge?: boolean },
 ): {
   projects: { id: string; name: string; bullets: string[]; status?: string }[];
   issues: { empty: boolean; items: { id: string; text: string }[] };
@@ -120,7 +128,12 @@ export function importYunxiaoWorkitems(args: {
   reportStore: { create(input?: Record<string, unknown>): Promise<unknown> };
   itemsStore: YunxiaoItemStore;
   client?: YunxiaoClient | null;
-  body: { itemIds?: unknown; reportPartial?: Record<string, unknown> };
+  body: {
+    itemIds?: unknown;
+    reportPartial?: Record<string, unknown>;
+    moduleAutoMerge?: boolean;
+    materials?: { projects?: unknown; issues?: unknown; nextWeek?: unknown };
+  };
   resolveClient?: () => YunxiaoClient;
 }): Promise<unknown>;
 

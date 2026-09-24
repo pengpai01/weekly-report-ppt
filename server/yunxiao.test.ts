@@ -11,6 +11,7 @@ import {
   createMemoryYunxiaoItemStore,
   mapYunxiaoItemsToReport,
   normalizeYunxiaoWorkitem,
+  resolveConfirmMaterials,
   parseModuleFromTitle,
   resolveProjectName,
   toPublicYunxiaoItem,
@@ -270,6 +271,25 @@ describe("yunxiao mapping", () => {
     expect(mapped.projects).toEqual([]);
   });
 
+  it("defaults moduleAutoMerge to true and keeps separate names when false", () => {
+    const rows = [
+      item({ id: "1", title: "短名联调", category: "任务", status: "处理中", module: "设备" }),
+      item({ id: "2", title: "长名提测", category: "任务", status: "已完成", module: "设备管理" }),
+    ];
+    const merged = mapYunxiaoItemsToReport(rows);
+    expect(merged.projects).toHaveLength(1);
+    expect(merged.projects[0].name).toBe("设备管理");
+    expect(merged.projects[0].bullets).toEqual(["[处理中] 短名联调", "[已完成] 长名提测"]);
+
+    const explicit = mapYunxiaoItemsToReport(rows, {}, { moduleAutoMerge: true });
+    expect(explicit.projects.map((p) => p.name)).toEqual(["设备管理"]);
+
+    const separate = mapYunxiaoItemsToReport(rows, {}, { moduleAutoMerge: false });
+    expect(separate.projects.map((p) => p.name)).toEqual(["设备", "设备管理"]);
+    expect(separate.projects[0].bullets).toEqual(["[处理中] 短名联调"]);
+    expect(separate.projects[1].bullets).toEqual(["[已完成] 长名提测"]);
+  });
+
   it("lets reportPartial overlay mapped fields without dropping the mapping defaults", () => {
     const mapped = mapYunxiaoItemsToReport(
       [item({ id: "1", title: "【设备】联调", category: "任务", status: "进行中" })],
@@ -279,6 +299,34 @@ describe("yunxiao mapping", () => {
     expect(mapped.department).toBe("软件研发");
     expect(mapped.projects[0].name).toBe("设备");
     expect(mapped.projects[0].bullets).toEqual(["[进行中] 【设备】联调"]);
+  });
+});
+
+describe("resolveConfirmMaterials", () => {
+  it("defaults moduleAutoMerge to true and rejects invalid materials", () => {
+    expect(resolveConfirmMaterials({})).toEqual({ moduleAutoMerge: true, materials: null });
+    expect(resolveConfirmMaterials(undefined)).toEqual({ moduleAutoMerge: true, materials: null });
+    expect(resolveConfirmMaterials({ moduleAutoMerge: false }).moduleAutoMerge).toBe(false);
+
+    const materials = {
+      projects: [{ id: "p", name: "已合并" }],
+      issues: [{ id: "i", text: "问题" }],
+      nextWeek: [{ id: "n", projectName: "已合并", items: ["计划"] }],
+    };
+    expect(resolveConfirmMaterials({ materials }).materials).toEqual(materials);
+
+    expect(() => resolveConfirmMaterials({ materials: { projects: [], nextWeek: [] } })).toThrow(
+      /materials must include array fields/,
+    );
+    try {
+      resolveConfirmMaterials({ materials: { projects: "no", issues: [], nextWeek: [] } });
+      expect.unreachable();
+    } catch (err) {
+      expect((err as { status?: number }).status).toBe(400);
+    }
+    expect(() => resolveConfirmMaterials({ moduleAutoMerge: "false" })).toThrow(
+      /moduleAutoMerge must be a boolean/,
+    );
   });
 });
 
@@ -676,5 +724,65 @@ describe("yunxiao HTTP API (mocked OpenAPI)", () => {
     expect(calls.every((c) => c.method !== "PUT" && c.method !== "PATCH" && c.method !== "DELETE")).toBe(
       true,
     );
+  });
+
+  it("imports with default merge, client materials, or moduleAutoMerge false", async () => {
+    const itemsStore = createMemoryYunxiaoItemStore();
+    await itemsStore.upsertMany([
+      item({ id: "short", title: "短名联调", category: "任务", status: "处理中", module: "设备" }),
+      item({ id: "long", title: "长名提测", category: "任务", status: "已完成", module: "设备管理" }),
+      item({ id: "bug", title: "登录失败", category: "缺陷", status: "待处理", module: "设备" }),
+      item({ id: "plan", title: "下周压测", category: "任务", status: "待处理", module: "设备管理" }),
+    ]);
+    const { base, store } = await startApi({
+      yunxiaoItems: itemsStore,
+      yunxiaoEnv: {},
+    });
+    const itemIds = ["short", "long", "bug", "plan"];
+
+    async function importBody(extra: Record<string, unknown>) {
+      return fetch(`${base}/api/yunxiao/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemIds, reportPartial: { title: "导入" }, ...extra }),
+      });
+    }
+
+    const defaults = await importBody({});
+    expect(defaults.status).toBe(201);
+    const defaultReport = await defaults.json();
+    expect(defaultReport.projects.map((p: { name: string }) => p.name)).toEqual(["设备管理"]);
+    expect(defaultReport.issues.items.map((i: { text: string }) => i.text)).toEqual(["登录失败"]);
+    expect(defaultReport.nextWeek[0].items).toEqual(["下周压测"]);
+    expect(defaultReport.moduleAutoMerge).toBeUndefined();
+
+    const skipped = await importBody({ moduleAutoMerge: false });
+    expect(skipped.status).toBe(201);
+    const separate = await skipped.json();
+    expect(separate.projects.map((p: { name: string }) => p.name)).toEqual(["设备", "设备管理"]);
+    expect(separate.issues.empty).toBe(false);
+    expect(separate.nextWeek.map((row: { items: string[] }) => row.items)).toEqual([["下周压测"]]);
+
+    const materials = {
+      projects: [{ id: "p-client", name: "客户端合并", bullets: ["手改要点"] }],
+      issues: [{ id: "i-client", text: "已合并问题" }],
+      nextWeek: [{ id: "n-client", projectName: "客户端合并", items: ["下周手改"] }],
+    };
+    const overridden = await importBody({ moduleAutoMerge: true, materials });
+    expect(overridden.status).toBe(201);
+    const custom = await overridden.json();
+    expect(custom.title).toBe("导入");
+    expect(custom.projects).toEqual(materials.projects);
+    expect(custom.issues).toEqual(materials.issues);
+    expect(custom.nextWeek).toEqual(materials.nextWeek);
+    expect((await store.get(custom.id))?.projects).toEqual(materials.projects);
+
+    const before = (await store.list()).length;
+    const bad = await importBody({
+      materials: { projects: [], issues: { items: [] }, nextWeek: [] },
+    });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/materials/);
+    expect(await store.list()).toHaveLength(before);
   });
 });
