@@ -40,6 +40,25 @@ export function zonesToConfirmMaterials(zones: ZoneSnapshot) {
   };
 }
 
+export function sameZoneSnapshot(left: ZoneSnapshot, right: ZoneSnapshot): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * Confirm body options for both import flows.
+ * `materials` is attached only when the preview differs from the untouched snapshot.
+ * A full 「撤销本次合并」 returns to that snapshot, so confirm omits `materials`.
+ * The undo stack itself is never part of this object.
+ */
+export function confirmMergeOptions(
+  moduleAutoMerge: boolean,
+  zones: ZoneSnapshot,
+  baseline: ZoneSnapshot,
+): ImportMergeOptions {
+  if (sameZoneSnapshot(zones, baseline)) return { moduleAutoMerge };
+  return { moduleAutoMerge, zones };
+}
+
 type Titled = { id: string; title: string };
 
 /**

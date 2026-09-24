@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   canMergeSelection,
+  confirmMergeOptions,
   mergeZoneItems,
   pickMergeTitle,
   prefixLine,
   setPrimary,
   toggleSelection,
+  zonesToConfirmMaterials,
   type ZoneSnapshot,
 } from "./zoneMerge";
 
@@ -131,6 +133,19 @@ describe("manual zone merge", () => {
     const before = snapshot();
     expect(() => mergeZoneItems(before, "projects", ["p1"])).toThrow(/至少选择 2 条/);
     expect(() => mergeZoneItems(before, "projects", ["p1", "i1"])).toThrow(/同一分区/);
+  });
+
+  it("sends materials only when the preview differs from the untouched snapshot", () => {
+    const before = snapshot();
+    const merged = mergeZoneItems(before, "projects", ["p1", "p2"], "p1");
+    expect(confirmMergeOptions(true, before, before)).toEqual({ moduleAutoMerge: true });
+    expect(confirmMergeOptions(false, before, before)).toEqual({ moduleAutoMerge: false });
+    const dirty = confirmMergeOptions(false, merged, before);
+    expect(dirty.moduleAutoMerge).toBe(false);
+    expect(dirty.zones).toBe(merged);
+    expect(zonesToConfirmMaterials(merged).issues).toEqual(before.issues.items);
+    expect(zonesToConfirmMaterials({ ...before, issues: { empty: true, items: before.issues.items } }).issues).toEqual([]);
+    expect(confirmMergeOptions(true, merged, before)).not.toHaveProperty("undo");
   });
 
   it("blocks cross-zone selection and keeps 主项 as the first checked id", () => {

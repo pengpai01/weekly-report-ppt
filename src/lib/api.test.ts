@@ -6,9 +6,11 @@ import {
   ingestErrorMessage,
   ingestRowError,
   listYunxiaoWorkItems,
+  updateReportOnServer,
   uploadIngestFile,
   yunxiaoErrorMessage,
 } from "./api";
+import type { Report } from "../types";
 
 const originalFetch = globalThis.fetch;
 
@@ -97,6 +99,27 @@ describe("yunxiao API client", () => {
     await importYunxiaoWorkItems(["a"], undefined, { moduleAutoMerge: false });
   });
 
+  it("posts materials arrays and does not send an undo field", async () => {
+    const materials = {
+      projects: [{ id: "p", name: "设备管理", bullets: ["[进行中·张三] 联调"], sourceIds: ["a"] }],
+      issues: [{ id: "i", text: "[待处理] 登录失败", sourceIds: ["b"] }],
+      nextWeek: [{ id: "n", projectName: "设备管理", items: ["压测"], sourceIds: ["c"] }],
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body).toEqual({
+        itemIds: ["a"],
+        moduleAutoMerge: false,
+        materials,
+      });
+      expect(body).not.toHaveProperty("undo");
+      expect(Array.isArray(body.materials.issues)).toBe(true);
+      return jsonResponse(201, { id: "rep-materials" });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await importYunxiaoWorkItems(["a"], undefined, { moduleAutoMerge: false, materials });
+  });
+
   it("maps service-down and 4xx failures to readable messages", async () => {
     expect(yunxiaoErrorMessage(new TypeError("Failed to fetch"), "fallback")).toBe(
       "无法连接本机服务，请确认服务已启动后再试。",
@@ -174,6 +197,60 @@ describe("ingest API client", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const report = await confirmIngestPreview("p1", { department: "研发" });
     expect(report.id).toBe("rep-upload");
+  });
+
+  it("posts moduleAutoMerge and materials on ingest confirm", async () => {
+    const materials = {
+      projects: [{ id: "p", name: "设备管理", bullets: ["联调"] }],
+      issues: [] as Report["issues"]["items"],
+      nextWeek: [{ id: "n", projectName: "", items: ["压测"] }],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/ingest/confirm");
+      expect(init?.method).toBe("POST");
+      const body = JSON.parse(String(init?.body));
+      expect(body).toEqual({
+        previewId: "p1",
+        moduleAutoMerge: true,
+        materials,
+      });
+      expect(body).not.toHaveProperty("undo");
+      return jsonResponse(201, { id: "rep-upload" });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await confirmIngestPreview("p1", undefined, { moduleAutoMerge: true, materials });
+  });
+
+  it("saves a draft merge with PUT /api/reports/:id", async () => {
+    const report = {
+      id: "rep-1",
+      templateType: "weekly",
+      title: "周工作总结",
+      department: "研发",
+      date: "2026-09-24",
+      author: "",
+      projects: [{ id: "p", name: "设备管理", bullets: ["[进行中] 联调"], sourceIds: ["a", "b"] }],
+      issues: { empty: false, items: [{ id: "i", text: "登录失败" }] },
+      nextWeek: [{ id: "n", projectName: "设备管理", items: ["压测"] }],
+      slides: [],
+      status: "draft",
+      createdAt: "2026-09-24T00:00:00.000Z",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+    } satisfies Report;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/reports/rep-1");
+      expect(init?.method).toBe("PUT");
+      const body = JSON.parse(String(init?.body));
+      expect(body.projects).toEqual(report.projects);
+      expect(body.issues).toEqual(report.issues);
+      expect(body.nextWeek).toEqual(report.nextWeek);
+      expect(body).not.toHaveProperty("undo");
+      expect(body).not.toHaveProperty("moduleAutoMerge");
+      expect(body).not.toHaveProperty("materials");
+      return jsonResponse(200, report);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await updateReportOnServer(report.id, report);
   });
 
   it("cancels a preview with JSON previewId", async () => {

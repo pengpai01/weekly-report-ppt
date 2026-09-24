@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listYunxiaoWorkItems, yunxiaoErrorMessage } from "../lib/api";
 import { buildZoneSnapshot } from "../lib/importZones";
-import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import { confirmMergeOptions, type ImportMergeOptions, type ZoneSnapshot } from "../lib/zoneMerge";
 import type { YunxiaoWorkItem } from "../types";
 import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
@@ -91,8 +91,9 @@ export function YunxiaoImportModal({
     [items, selected],
   );
   const previewKey = `${selectedIds.join("\0")}:${autoMerge ? "1" : "0"}`;
+  const baseline = useMemo(() => buildZoneSnapshot(selectedItems, autoMerge), [selectedItems, autoMerge]);
   const edited = manual?.key === previewKey ? manual.zones : null;
-  const zones = edited ?? buildZoneSnapshot(selectedItems, autoMerge);
+  const zones = edited ?? baseline;
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -111,10 +112,7 @@ export function YunxiaoImportModal({
     if (!selectedIds.length || busy) return;
     setError(null);
     try {
-      await onImport(selectedIds, {
-        moduleAutoMerge: autoMerge,
-        zones: edited ?? undefined,
-      });
+      await onImport(selectedIds, confirmMergeOptions(autoMerge, zones, baseline));
     } catch (err) {
       setError(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
     }

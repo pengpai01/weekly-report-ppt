@@ -15,7 +15,7 @@ import {
   INGEST_TEMPLATE_XLSX,
   YUNZHIJIA_NOTE,
 } from "../lib/ingestCopy";
-import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import { confirmMergeOptions, type ImportMergeOptions, type ZoneSnapshot } from "../lib/zoneMerge";
 import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
 function isSpreadsheetName(name: string): boolean {
@@ -110,10 +110,8 @@ export function IngestUploadModal({
 
   const okRows = useMemo(() => preview?.rows.filter((row) => row.ok) ?? [], [preview]);
   const previewKey = `${preview?.previewId ?? ""}:${autoMerge ? "1" : "0"}:${okRows.map((row) => row.row).join(",")}`;
-  const edited = manual?.key === previewKey ? manual.zones : null;
-  const zones = useMemo(
+  const baseline = useMemo(
     () =>
-      edited ??
       buildZoneSnapshot(
         okRows.map((row) => ({
           id: `${row.row}-${row.sourceId ?? ""}`,
@@ -126,8 +124,10 @@ export function IngestUploadModal({
         })),
         autoMerge,
       ),
-    [edited, okRows, autoMerge],
+    [okRows, autoMerge],
   );
+  const edited = manual?.key === previewKey ? manual.zones : null;
+  const zones = edited ?? baseline;
 
   const confirm = async () => {
     if (!preview?.previewId || busy || uploading) return;
@@ -137,10 +137,7 @@ export function IngestUploadModal({
     }
     setError(null);
     try {
-      await onConfirm(preview.previewId, {
-        moduleAutoMerge: autoMerge,
-        zones: edited ?? undefined,
-      });
+      await onConfirm(preview.previewId, confirmMergeOptions(autoMerge, zones, baseline));
     } catch (err) {
       setError(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
     }
