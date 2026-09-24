@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelIngestPreview,
   ingestErrorMessage,
@@ -7,6 +7,7 @@ import {
   type IngestPreview,
   type IngestPreviewRow,
 } from "../lib/api";
+import { buildZoneSnapshot } from "../lib/importZones";
 import {
   INGEST_ACCEPT,
   INGEST_MAX_UPLOAD_BYTES,
@@ -14,6 +15,8 @@ import {
   INGEST_TEMPLATE_XLSX,
   YUNZHIJIA_NOTE,
 } from "../lib/ingestCopy";
+import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
 function isSpreadsheetName(name: string): boolean {
   const lower = name.trim().toLowerCase();
@@ -33,13 +36,15 @@ export function IngestUploadModal({
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onConfirm: (previewId: string) => Promise<void>;
+  onConfirm: (previewId: string, options: ImportMergeOptions) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<IngestPreview | null>(null);
+  const [autoMerge, setAutoMerge] = useState(true);
+  const [manual, setManual] = useState<{ key: string; zones: ZoneSnapshot } | null>(null);
 
   useEffect(() => {
     if (open) return;
@@ -47,6 +52,8 @@ export function IngestUploadModal({
     setError(null);
     setPreview(null);
     setUploading(false);
+    setAutoMerge(true);
+    setManual(null);
     if (inputRef.current) inputRef.current.value = "";
   }, [open]);
 
@@ -101,6 +108,26 @@ export function IngestUploadModal({
     }
   };
 
+  const okRows = useMemo(() => preview?.rows.filter((row) => row.ok) ?? [], [preview]);
+  const previewKey = `${preview?.previewId ?? ""}:${autoMerge ? "1" : "0"}:${okRows.map((row) => row.row).join(",")}`;
+  const edited = manual?.key === previewKey ? manual.zones : null;
+  const zones = useMemo(
+    () =>
+      edited ??
+      buildZoneSnapshot(
+        okRows.map((row) => ({
+          id: `${row.row}-${row.sourceId ?? ""}`,
+          title: row.title,
+          status: row.status,
+          module: row.module,
+          assignee: row.owner,
+          detail: row.detail,
+        })),
+        autoMerge,
+      ),
+    [edited, okRows, autoMerge],
+  );
+
   const confirm = async () => {
     if (!preview?.previewId || busy || uploading) return;
     if (preview.summary.ok < 1) {
@@ -109,7 +136,10 @@ export function IngestUploadModal({
     }
     setError(null);
     try {
-      await onConfirm(preview.previewId);
+      await onConfirm(preview.previewId, {
+        moduleAutoMerge: autoMerge,
+        zones: edited ?? undefined,
+      });
     } catch (err) {
       setError(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
     }
@@ -205,6 +235,22 @@ export function IngestUploadModal({
                 </table>
               </div>
             )}
+            {preview.summary.ok > 0 ? (
+              <div className="import-preview">
+                <h4>草稿预览</h4>
+                <p className="hint">
+                  {edited
+                    ? "已按你的调整预览。确认后按此内容写入草稿。错误行不会进入正文。"
+                    : "仅成功行进入预览。未改预览时，确认后以服务端映射为准（含去重）。开启「按模块自动归并」时，相近模块名合并，短名包含于长名则保留较长正式名。"}
+                </p>
+                <ZoneMergePanel
+                  scrollable
+                  resetKey={previewKey}
+                  value={zones}
+                  onChange={(next) => setManual({ key: previewKey, zones: next })}
+                />
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="panel empty" style={{ boxShadow: "none" }}>
@@ -216,13 +262,16 @@ export function IngestUploadModal({
           <button className="btn btn-ghost" disabled={busy || uploading} onClick={close}>
             取消
           </button>
-          <button
-            className="btn btn-primary"
-            disabled={busy || uploading || !preview || preview.summary.ok < 1}
-            onClick={() => void confirm()}
-          >
-            {busy ? "正在导入…" : "确认导入"}
-          </button>
+          <div className="confirm-actions">
+            <AutoMergeToggle checked={autoMerge} disabled={busy || uploading} onChange={setAutoMerge} />
+            <button
+              className="btn btn-primary"
+              disabled={busy || uploading || !preview || preview.summary.ok < 1}
+              onClick={() => void confirm()}
+            >
+              {busy ? "正在导入…" : "确认导入"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

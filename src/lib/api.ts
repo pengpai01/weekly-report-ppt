@@ -125,12 +125,38 @@ export function listYunxiaoWorkItems(updatedWithinDays = 14, init?: RequestInit)
   return request<YunxiaoWorkItemList>(`/api/yunxiao/workitems?${query}`, init);
 }
 
-export function importYunxiaoWorkItems(itemIds: string[], reportPartial?: Partial<Report>) {
+export type ConfirmMaterials = {
+  projects: Report["projects"];
+  /** Backend stores this array as `issues` (not `{ empty, items }`). */
+  issues: Report["issues"]["items"];
+  nextWeek: Report["nextWeek"];
+};
+
+export type ConfirmImportOptions = {
+  /** Default true. false skips similar-name module merge; exact module labels still group. */
+  moduleAutoMerge?: boolean;
+  /** Client-edited draft. When set, server keeps these arrays and skips auto-merge. */
+  materials?: ConfirmMaterials;
+};
+
+/**
+ * POST /api/yunxiao/import accepts `moduleAutoMerge` (boolean, default true)
+ * and optional `materials` `{ projects, issues, nextWeek }` arrays.
+ * @backend field already on main: do not send `autoMergeModules`.
+ */
+export function importYunxiaoWorkItems(
+  itemIds: string[],
+  reportPartial?: Partial<Report>,
+  options: ConfirmImportOptions = {},
+) {
+  const moduleAutoMerge = options.moduleAutoMerge !== false;
   return request<Report>("/api/yunxiao/import", {
     method: "POST",
     body: JSON.stringify({
       itemIds,
+      moduleAutoMerge,
       ...(reportPartial ? { reportPartial } : {}),
+      ...(options.materials ? { materials: options.materials } : {}),
     }),
   });
 }
@@ -161,12 +187,20 @@ export function uploadIngestFile(file: File | Blob, filename?: string) {
   return request<IngestPreview>("/api/ingest/upload", { method: "POST", body: form });
 }
 
-export function confirmIngestPreview(previewId: string, reportPartial?: Partial<Report>) {
+/** Same `moduleAutoMerge` / `materials` body as `importYunxiaoWorkItems`. */
+export function confirmIngestPreview(
+  previewId: string,
+  reportPartial?: Partial<Report>,
+  options: ConfirmImportOptions = {},
+) {
+  const moduleAutoMerge = options.moduleAutoMerge !== false;
   return request<Report>("/api/ingest/confirm", {
     method: "POST",
     body: JSON.stringify({
       previewId,
+      moduleAutoMerge,
       ...(reportPartial ? { reportPartial } : {}),
+      ...(options.materials ? { materials: options.materials } : {}),
     }),
   });
 }

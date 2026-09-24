@@ -19,7 +19,9 @@ import {
   importYunxiaoWorkItems,
   listReports,
   updateReportOnServer,
+  type ConfirmImportOptions,
 } from "./lib/api";
+import type { IssueItem } from "./types";
 
 const STORAGE_KEY = "weekly-report-ppt:v1";
 const SAVE_DEBOUNCE_MS = 400;
@@ -68,12 +70,36 @@ interface StoreValue {
   patch: (id: string, updater: (report: Report) => Report) => Report | undefined;
   remove: (id: string) => Promise<void>;
   create: (partial?: Partial<Report>) => Promise<Report>;
-  importFromYunxiao: (itemIds: string[], reportPartial?: Partial<Report>) => Promise<Report>;
-  importFromUpload: (previewId: string, reportPartial?: Partial<Report>) => Promise<Report>;
+  importFromYunxiao: (
+    itemIds: string[],
+    reportPartial?: Partial<Report>,
+    options?: ConfirmImportOptions,
+  ) => Promise<Report>;
+  importFromUpload: (
+    previewId: string,
+    reportPartial?: Partial<Report>,
+    options?: ConfirmImportOptions,
+  ) => Promise<Report>;
   saveNow: (id?: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
+
+/** Import `materials.issues` is stored as an array. The editor uses `{ empty, items }`. */
+function normalizeReportShape(report: Report): Report {
+  const rawIssues = report.issues as Report["issues"] | IssueItem[] | undefined;
+  const issues = Array.isArray(rawIssues)
+    ? { empty: rawIssues.length === 0, items: rawIssues }
+    : { empty: rawIssues?.empty ?? true, items: rawIssues?.items ?? [] };
+  return {
+    ...report,
+    projects: report.projects ?? [],
+    issues,
+    nextWeek: report.nextWeek ?? [],
+    slides: report.slides ?? [],
+    status: report.status ?? "draft",
+  };
+}
 
 export function ReportProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<Report[]>([]);
@@ -84,9 +110,10 @@ export function ReportProvider({ children }: { children: ReactNode }) {
   const savesRef = useRef(new Map<string, Promise<void>>());
 
   const commit = useCallback((next: Report[]) => {
-    reportsRef.current = next;
-    setReports(next);
-    writeCache(next);
+    const normalized = next.map(normalizeReportShape);
+    reportsRef.current = normalized;
+    setReports(normalized);
+    writeCache(normalized);
   }, []);
 
   const persistOne = useCallback((id: string) => {
@@ -260,14 +287,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
       if (!saved?.id) {
         throw new Error("导入成功但未返回草稿编号。");
       }
-      const report: Report = {
-        ...saved,
-        projects: saved.projects ?? [],
-        issues: saved.issues ?? { empty: true, items: [] },
-        nextWeek: saved.nextWeek ?? [],
-        slides: saved.slides ?? [],
-        status: saved.status ?? "draft",
-      };
+      const report = normalizeReportShape(saved);
       commit([report, ...reportsRef.current.filter((r) => r.id !== report.id)]);
       setError(null);
       return report;
@@ -276,16 +296,16 @@ export function ReportProvider({ children }: { children: ReactNode }) {
   );
 
   const importFromYunxiao = useCallback(
-    async (itemIds: string[], reportPartial?: Partial<Report>) => {
-      const saved = await importYunxiaoWorkItems(itemIds, reportPartial);
+    async (itemIds: string[], reportPartial?: Partial<Report>, options?: ConfirmImportOptions) => {
+      const saved = await importYunxiaoWorkItems(itemIds, reportPartial, options);
       return commitImported(saved);
     },
     [commitImported],
   );
 
   const importFromUpload = useCallback(
-    async (previewId: string, reportPartial?: Partial<Report>) => {
-      const saved = await confirmIngestPreview(previewId, reportPartial);
+    async (previewId: string, reportPartial?: Partial<Report>, options?: ConfirmImportOptions) => {
+      const saved = await confirmIngestPreview(previewId, reportPartial, options);
       return commitImported(saved);
     },
     [commitImported],

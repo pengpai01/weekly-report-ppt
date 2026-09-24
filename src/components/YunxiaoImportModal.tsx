@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { listYunxiaoWorkItems, yunxiaoErrorMessage } from "../lib/api";
-import type { Report, YunxiaoWorkItem } from "../types";
+import { buildZoneSnapshot } from "../lib/importZones";
+import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import type { YunxiaoWorkItem } from "../types";
+import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
 const UPDATED_WITHIN_DAYS = 14;
 
@@ -25,13 +28,15 @@ export function YunxiaoImportModal({
   open: boolean;
   busy: boolean;
   onClose: () => void;
-  onImport: (itemIds: string[], reportPartial?: Partial<Report>) => Promise<void>;
+  onImport: (itemIds: string[], options: ImportMergeOptions) => Promise<void>;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<YunxiaoWorkItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
+  const [autoMerge, setAutoMerge] = useState(true);
+  const [manual, setManual] = useState<{ key: string; zones: ZoneSnapshot } | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -39,6 +44,8 @@ export function YunxiaoImportModal({
       setSelected(new Set());
       setError(null);
       setLoading(false);
+      setAutoMerge(true);
+      setManual(null);
       return;
     }
 
@@ -46,6 +53,8 @@ export function YunxiaoImportModal({
     setLoading(true);
     setError(null);
     setSelected(new Set());
+    setAutoMerge(true);
+    setManual(null);
     void listYunxiaoWorkItems(UPDATED_WITHIN_DAYS, { signal: ac.signal })
       .then((body) => {
         if (!body || !Array.isArray(body.items)) {
@@ -67,6 +76,23 @@ export function YunxiaoImportModal({
 
   const allSelected = items.length > 0 && selected.size === items.length;
   const selectedIds = useMemo(() => [...selected], [selected]);
+  const selectedItems = useMemo(
+    () =>
+      items
+        .filter((item) => selected.has(item.id))
+        .map((item) => ({
+          id: item.id,
+          title: item.title,
+          status: item.status,
+          category: item.category,
+          module: item.module,
+          assignee: item.assignee,
+        })),
+    [items, selected],
+  );
+  const previewKey = `${selectedIds.join("\0")}:${autoMerge ? "1" : "0"}`;
+  const edited = manual?.key === previewKey ? manual.zones : null;
+  const zones = edited ?? buildZoneSnapshot(selectedItems, autoMerge);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -85,7 +111,10 @@ export function YunxiaoImportModal({
     if (!selectedIds.length || busy) return;
     setError(null);
     try {
-      await onImport(selectedIds);
+      await onImport(selectedIds, {
+        moduleAutoMerge: autoMerge,
+        zones: edited ?? undefined,
+      });
     } catch (err) {
       setError(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
     }
@@ -98,7 +127,7 @@ export function YunxiaoImportModal({
       <div className="modal yunxiao-modal" onClick={(e) => e.stopPropagation()}>
         <h3>从云效导入</h3>
         <p className="hint">
-          列出近 {UPDATED_WITHIN_DAYS} 天更新的工作项，勾选后生成周报草稿。云效凭证只保存在本机服务，不会出现在浏览器。
+          列出近 {UPDATED_WITHIN_DAYS} 天更新的工作项，勾选后在下方预览草稿。可在同一分区内合并条目。云效凭证只保存在本机服务，不会出现在浏览器。
         </p>
 
         {error ? <div className="error">{error}</div> : null}
@@ -147,11 +176,29 @@ export function YunxiaoImportModal({
           </>
         )}
 
+        {selectedIds.length > 0 ? (
+          <div className="import-preview">
+            <h4>草稿预览</h4>
+            <p className="hint">
+              {edited
+                ? "已按你的调整预览。确认后按此内容写入草稿。"
+                : "未改预览时，确认后以服务端映射为准（含去重）。开启「按模块自动归并」时，相近模块名合并，短名包含于长名则保留较长正式名。"}
+            </p>
+            <ZoneMergePanel
+              scrollable
+              resetKey={previewKey}
+              value={zones}
+              onChange={(next) => setManual({ key: previewKey, zones: next })}
+            />
+          </div>
+        ) : null}
+
         <div className="footer-bar">
           <button className="btn btn-ghost" disabled={busy} onClick={onClose}>
             取消
           </button>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="confirm-actions">
+            <AutoMergeToggle checked={autoMerge} disabled={busy || loading} onChange={setAutoMerge} />
             <button
               className="btn btn-ghost"
               disabled={busy || loading}
