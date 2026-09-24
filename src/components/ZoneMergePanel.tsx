@@ -51,12 +51,24 @@ export function ZoneMergePanel({
   const [selection, setSelection] = useState<ZoneSelection>(EMPTY_SELECTION);
   const [undo, setUndo] = useState<ZoneSnapshot[]>([]);
   const [error, setError] = useState("");
+  // Session-only. Not written to the draft, localStorage, or the URL.
+  const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
     setUndo([]);
     setError("");
+    setOpenProjectIds(new Set());
   }, [resetKey]);
+
+  const toggleProjectOpen = (id: string) => {
+    setOpenProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const toggle = (zone: MergeZone, id: string) => {
     const result = toggleSelection(selection, zone, id);
@@ -129,15 +141,20 @@ export function ZoneMergePanel({
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无重要事项。</div>
         ) : (
           <div className="merge-list">
-            {value.projects.map((project, index) => (
+            {value.projects.map((project, index) => {
+              const open = openProjectIds.has(project.id);
+              const projectChecked = activeZone === "projects" && selected.has(project.id);
+              const displayName = project.name.trim() || "未命名项目";
+              const itemCount = project.bullets.length;
+              return (
               <article
                 key={project.id}
-                className={`project-card merge-item${activeZone === "projects" && selected.has(project.id) ? " selected" : ""}`}
+                className={`project-card merge-item${projectChecked ? " selected" : ""}${open ? "" : " is-collapsed"}`}
               >
                 <label className="merge-check">
                   <input
                     type="checkbox"
-                    checked={activeZone === "projects" && selected.has(project.id)}
+                    checked={projectChecked}
                     aria-label={`选择重要事项 ${project.name || index + 1}`}
                     onChange={() => toggle("projects", project.id)}
                   />
@@ -145,53 +162,73 @@ export function ZoneMergePanel({
                 <div>
                   <div className="project-head">
                     <PrimaryMark
-                      selected={activeZone === "projects" && selected.has(project.id)}
+                      selected={projectChecked}
                       primary={activeZone === "projects" && selection.primaryId === project.id}
                       onSetPrimary={() => setSelection(setPrimary(selection, project.id))}
                     />
                     <span className="drag-handle">{index + 1}</span>
-                    <input
-                      className="text-input"
-                      placeholder="项目名称 *"
-                      value={project.name}
-                      onChange={(event) =>
-                        onChange({
-                          ...value,
-                          projects: value.projects.map((item) =>
-                            item.id === project.id ? { ...item, name: event.target.value } : item,
-                          ),
-                        })
-                      }
-                    />
-                    <select
-                      value={project.status ?? ""}
-                      aria-label="项目标签"
-                      onChange={(event) =>
-                        onChange({
-                          ...value,
-                          projects: value.projects.map((item) =>
-                            item.id === project.id
-                              ? { ...item, status: (event.target.value || undefined) as ProjectStatus | undefined }
-                              : item,
-                          ),
-                        })
-                      }
-                    >
-                      <option value="">标签（可选）</option>
-                      {(Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((key) => (
-                        <option key={key} value={key}>{PROJECT_STATUS_LABEL[key]}</option>
-                      ))}
-                    </select>
+                    {open ? (
+                      <>
+                        <input
+                          className="text-input"
+                          placeholder="项目名称 *"
+                          value={project.name}
+                          onChange={(event) =>
+                            onChange({
+                              ...value,
+                              projects: value.projects.map((item) =>
+                                item.id === project.id ? { ...item, name: event.target.value } : item,
+                              ),
+                            })
+                          }
+                        />
+                        <select
+                          value={project.status ?? ""}
+                          aria-label="项目标签"
+                          onChange={(event) =>
+                            onChange({
+                              ...value,
+                              projects: value.projects.map((item) =>
+                                item.id === project.id
+                                  ? { ...item, status: (event.target.value || undefined) as ProjectStatus | undefined }
+                                  : item,
+                              ),
+                            })
+                          }
+                        >
+                          <option value="">标签（可选）</option>
+                          {(Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((key) => (
+                            <option key={key} value={key}>{PROJECT_STATUS_LABEL[key]}</option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (
+                      <>
+                        <span className="project-collapse-name">{displayName}</span>
+                        <span className="project-collapse-count">{itemCount} 条</span>
+                      </>
+                    )}
                     <button className="btn btn-ghost btn-sm" onClick={() => moveProject(value, index, -1, onChange)}>上移</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => moveProject(value, index, 1, onChange)}>下移</button>
                     <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => onChange({ ...value, projects: value.projects.filter((item) => item.id !== project.id) })}
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      aria-expanded={open}
+                      aria-label={`${open ? "收起" : "展开"} ${displayName}`}
+                      onClick={() => toggleProjectOpen(project.id)}
                     >
-                      删除
+                      {open ? "收起" : "展开"}
                     </button>
+                    {open ? (
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => onChange({ ...value, projects: value.projects.filter((item) => item.id !== project.id) })}
+                      >
+                        删除
+                      </button>
+                    ) : null}
                   </div>
-                  {project.bullets.map((bullet, bulletIndex) => (
+                  {open ? project.bullets.map((bullet, bulletIndex) => (
                     <div className="bullet-row" key={`${project.id}-${bulletIndex}`}>
                       <textarea
                         className="text-input"
@@ -232,23 +269,26 @@ export function ZoneMergePanel({
                         删除
                       </button>
                     </div>
-                  ))}
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      onChange({
-                        ...value,
-                        projects: value.projects.map((item) =>
-                          item.id === project.id ? clearLineMeta({ ...item, bullets: [...item.bullets, ""] }) : item,
-                        ),
-                      })
-                    }
-                  >
-                    添加要点
-                  </button>
+                  )) : null}
+                  {open ? (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        onChange({
+                          ...value,
+                          projects: value.projects.map((item) =>
+                            item.id === project.id ? clearLineMeta({ ...item, bullets: [...item.bullets, ""] }) : item,
+                          ),
+                        })
+                      }
+                    >
+                      添加要点
+                    </button>
+                  ) : null}
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

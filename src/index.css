@@ -263,6 +263,21 @@ a { color: inherit; }
   margin-bottom: 10px;
 }
 .project-head input { flex: 1; }
+.project-card.is-collapsed .project-head { margin-bottom: 0; }
+.project-collapse-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-collapse-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .drag-handle {
   cursor: grab;
   color: var(--muted);
