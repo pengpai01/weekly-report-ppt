@@ -4,6 +4,7 @@ import {
   confirmIngestPreview,
   importYunxiaoWorkItems,
   ingestErrorMessage,
+  ingestRowError,
   listYunxiaoWorkItems,
   uploadIngestFile,
   yunxiaoErrorMessage,
@@ -202,5 +203,7 @@ describe("ingest API client", () => {
     const alreadyZh = new Error("文件没有数据行。") as Error & { status: number };
     alreadyZh.status = 400;
     expect(ingestErrorMessage(alreadyZh, "fallback")).toBe("文件没有数据行。");
+    expect(ingestRowError("事项标题 is required; 状态 is required")).toBe("事项标题为必填；状态为必填");
+    expect(ingestRowError()).toBe("未通过");
   });
 });
