@@ -352,6 +352,70 @@ describe("ingest HTTP API", () => {
     expect(report.nextWeek).toEqual([]);
   });
 
+  it("confirm defaults to auto-merge, accepts materials, and rejects a bad shape", async () => {
+    const { base, store, ingestStore } = await startApi();
+    let seq = 0;
+
+    async function confirm(extra: Record<string, unknown>) {
+      seq += 1;
+      const csv = [
+        "事项标题,状态,模块,来源ID",
+        `短名联调,处理中,设备,s-${seq}`,
+        `长名提测,已完成,设备管理,l-${seq}`,
+        `登录失败,Bug,设备,b-${seq}`,
+        `下周压测,待处理,设备管理,p-${seq}`,
+      ].join("\n");
+      const uploadRes = await fetch(`${base}/api/ingest/upload`, {
+        method: "POST",
+        body: csvFile(csv),
+      });
+      expect(uploadRes.status).toBe(200);
+      const preview = await uploadRes.json();
+      const res = await fetch(`${base}/api/ingest/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ previewId: preview.previewId, ...extra }),
+      });
+      return { res, previewId: preview.previewId as string };
+    }
+
+    const defaults = await confirm({});
+    expect(defaults.res.status).toBe(201);
+    const defaultReport = await defaults.res.json();
+    expect(defaultReport.projects.map((p: { name: string }) => p.name)).toEqual(["设备管理"]);
+    expect(defaultReport.issues.empty).toBe(false);
+    expect(
+      defaultReport.nextWeek.some((row: { items: string[] }) => row.items.includes("下周压测")),
+    ).toBe(true);
+    expect(defaultReport.moduleAutoMerge).toBeUndefined();
+
+    const skipped = await confirm({ moduleAutoMerge: false });
+    expect(skipped.res.status).toBe(201);
+    const separate = await skipped.res.json();
+    expect(separate.projects.map((p: { name: string }) => p.name)).toEqual(["设备", "设备管理"]);
+    expect(separate.issues.items.map((i: { text: string }) => i.text)).toEqual(["登录失败"]);
+    expect(separate.nextWeek.map((row: { items: string[] }) => row.items)).toEqual([["下周压测"]]);
+
+    const materials = {
+      projects: [{ id: "p-client", name: "客户端合并", bullets: ["手改要点"] }],
+      issues: [{ id: "i-client", text: "已合并问题" }],
+      nextWeek: [{ id: "n-client", projectName: "客户端合并", items: ["下周手改"] }],
+    };
+    const overridden = await confirm({ materials, moduleAutoMerge: true });
+    expect(overridden.res.status).toBe(201);
+    const custom = await overridden.res.json();
+    expect(custom.projects).toEqual(materials.projects);
+    expect(custom.issues).toEqual(materials.issues);
+    expect(custom.nextWeek).toEqual(materials.nextWeek);
+
+    const before = (await store.list()).length;
+    const bad = await confirm({ materials: { projects: [], nextWeek: [] } });
+    expect(bad.res.status).toBe(400);
+    expect((await bad.res.json()).error).toMatch(/materials/);
+    expect(await store.list()).toHaveLength(before);
+    expect(await ingestStore.listByPreview(bad.previewId)).toEqual([]);
+  });
+
   it("parses xlsx the same way as csv", async () => {
     const { base } = await startApi();
     const res = await fetch(`${base}/api/ingest/upload`, {

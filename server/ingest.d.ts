@@ -83,6 +83,7 @@ export function ingestRowsToYunxiaoItems(rows: IngestPreviewRow[]): object[];
 export function mapIngestRowsToReport(
   rows: IngestPreviewRow[],
   reportPartial?: Record<string, unknown>,
+  options?: { moduleAutoMerge?: boolean; projectNameAliases?: Record<string, string> },
 ): MappedIngestReport;
 export function dedupeIngestRows(
   okRows: IngestPreviewRow[],
@@ -108,7 +109,12 @@ export function uploadIngestFile(args: {
   previewStore: IngestPreviewStore;
 }): Promise<IngestPreview>;
 export function confirmIngestPreview(args: {
-  body: { previewId?: string; reportPartial?: Record<string, unknown> };
+  body: {
+    previewId?: string;
+    reportPartial?: Record<string, unknown>;
+    moduleAutoMerge?: boolean;
+    materials?: { projects?: unknown; issues?: unknown; nextWeek?: unknown };
+  };
   previewStore: IngestPreviewStore;
   ingestStore: IngestRawStore;
   reportStore: { create(input?: object): Promise<{ id: string }> };

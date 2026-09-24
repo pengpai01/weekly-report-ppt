@@ -70,7 +70,7 @@ npm test
 
 1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_API_BASE_URL`）。
 2. `GET /api/yunxiao/workitems` 同步并返回缓存项（部署后应非空）。
-3. `POST /api/yunxiao/import` 用选中的 id 创建周报。
+3. `POST /api/yunxiao/import` 用选中的 id 创建周报。可选字段与表格确认相同：`moduleAutoMerge`（boolean，省略默认 `true`）、`materials`（`{ projects, issues, nextWeek }`，三者均为数组）。传入 `materials` 则原样作为草稿的 projects / issues / nextWeek，不再做服务端模块合并。
 4. `GET /api/reports/:id` 核对草稿。
 
 ```bat
@@ -85,7 +85,14 @@ OpenAPI 基址默认 `https://openapi-rdc.aliyuncs.com`，请求头 `x-yunxiao-t
 
 `POST /api/ingest/upload`（multipart 字段名 `file`）解析后返回预览，**不写** `wr_reports`。必填列：`事项标题`、`状态`。可选：`模块`、`负责人`、`详情`、`计划日期`、`来源ID`。缺列的行 `ok: false` 并带 `error`，确认时不会进入周报正文。
 
-`POST /api/ingest/confirm` `{ "previewId" }`：先把全部预览行（含错误行）写入 `wr_ingest_raw`（`source=upload`），再把成功行映射成**新**周报草稿并返回 201。映射与云效相同：进行中/已完成 → `projects`；阻塞/Bug → `issues`；未完成/计划 → `nextWeek`。空模块归入 `其他`；标题 `【模块】事项` 会按括号归组并合并同名项目。去重：有 `来源ID` 时按 `(source, sourceId)`；否则同一项目下全文相同则合并。同一文件再次上传会再记一笔 raw（可追溯），但不会重复生成事项。
+`POST /api/ingest/confirm` `{ "previewId" }`：先把全部预览行（含错误行）写入 `wr_ingest_raw`（`source=upload`），再把成功行映射成**新**周报草稿并返回 201。映射与云效相同：进行中/已完成 → `projects`；阻塞/Bug → `issues`；未完成/计划 → `nextWeek`。空模块归入 `其他`；标题 `【模块】事项` 会按括号归组。去重：有 `来源ID` 时按 `(source, sourceId)`；否则同一项目下全文相同则合并。同一文件再次上传会再记一笔 raw（可追溯），但不会重复生成事项。
+
+可选字段（两个确认接口相同，不新增表、不改 `PUT/PATCH /api/reports/:id`）：
+
+- `moduleAutoMerge`（boolean）。省略时默认 `true`：短名包含于长名（及后缀剥离后相同，如「设备」与「设备管理」）并入更长的正式名称。`false` 且没有 `materials` 时仍按状态分桶，但跳过相似模块名合并，模块名保持原样。
+- `materials`：`{ projects, issues, nextWeek }`，三个字段都必须是数组。传入则原样写入草稿对应字段（客户端已合并），忽略服务端自动合并。缺字段、非对象或非数组返回 400。
+
+`moduleAutoMerge` 不单独落库：`wr_reports` 没有额外 JSON 列，本变更不做迁移。确认前取消仍只走 `POST /api/ingest/cancel`（或客户端丢弃云效选择），不新增撤销接口。
 
 `POST /api/ingest/cancel` `{ "previewId" }` 返回 204，丢弃预览，不写 `wr_reports` / `wr_ingest_raw`。预览在内存中，约 30 分钟过期。
 
