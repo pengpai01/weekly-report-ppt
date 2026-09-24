@@ -1,20 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
-import { IngestUploadModal } from "../components/IngestUploadModal";
 import { YunxiaoImportModal } from "../components/YunxiaoImportModal";
-import { ingestErrorMessage, yunxiaoErrorMessage } from "../lib/api";
+import { yunxiaoErrorMessage } from "../lib/api";
 import { zonesToConfirmMaterials, type ImportMergeOptions } from "../lib/zoneMerge";
-import { continueFrom } from "../lib/report";
 import { STATUS_LABEL } from "../lib/report";
 import { useReports } from "../store";
 
 export function HomePage() {
-  const { reports, create, remove, ready, error, importFromYunxiao, importFromUpload } = useReports();
+  const { reports, create, remove, ready, error, importFromYunxiao } = useReports();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [uploadOpen, setUploadOpen] = useState(false);
   const sorted = [...reports].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const startNew = async () => {
@@ -22,23 +19,6 @@ export function HomePage() {
     try {
       const report = await create();
       navigate(`/reports/${report.id}/meta`);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "无法创建草稿，请确认本机服务已启动。");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const continueLast = async () => {
-    const last = sorted[0];
-    if (!last) {
-      window.alert("暂无历史稿，请先新建一份汇报。");
-      return;
-    }
-    setBusy(true);
-    try {
-      const next = await create(continueFrom(last));
-      navigate(`/reports/${next.id}/meta`);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "无法创建草稿，请确认本机服务已启动。");
     } finally {
@@ -83,19 +63,6 @@ export function HomePage() {
     }
   };
 
-  const confirmUpload = async (previewId: string, options: ImportMergeOptions) => {
-    setBusy(true);
-    try {
-      const report = await importFromUpload(previewId, lastPartial(), importOptions(options));
-      setUploadOpen(false);
-      navigate(`/reports/${report.id}/materials`);
-    } catch (err) {
-      throw err instanceof Error ? err : new Error(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <>
       <AppHeader />
@@ -112,14 +79,8 @@ export function HomePage() {
             <button className="btn btn-primary" disabled={busy || !ready} onClick={() => void startNew()}>
               新建周/双周总结
             </button>
-            <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => void continueLast()}>
-              从上次续写
-            </button>
             <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => setImportOpen(true)}>
               从云效导入
-            </button>
-            <button className="btn btn-secondary" disabled={busy || !ready} onClick={() => setUploadOpen(true)}>
-              上传表格导入
             </button>
           </div>
         </section>
@@ -173,12 +134,6 @@ export function HomePage() {
         busy={busy}
         onClose={() => setImportOpen(false)}
         onImport={importSelected}
-      />
-      <IngestUploadModal
-        open={uploadOpen}
-        busy={busy}
-        onClose={() => setUploadOpen(false)}
-        onConfirm={confirmUpload}
       />
     </>
   );
