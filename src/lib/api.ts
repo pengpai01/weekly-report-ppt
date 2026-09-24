@@ -135,7 +135,10 @@ export type ConfirmMaterials = {
 export type ConfirmImportOptions = {
   /** Default true. false skips similar-name module merge; exact module labels still group. */
   moduleAutoMerge?: boolean;
-  /** Client-edited draft. When set, server keeps these arrays and skips auto-merge. */
+  /**
+   * Client-edited draft. When set, server keeps these arrays and skips auto-merge.
+   * Items may include `sourceIds`, issue `title`, and `mergeLines` inside the existing JSON columns.
+   */
   materials?: ConfirmMaterials;
 };
 

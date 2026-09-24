@@ -70,7 +70,7 @@ npm test
 
 1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_API_BASE_URL`）。
 2. `GET /api/yunxiao/workitems` 同步并返回缓存项（部署后应非空）。
-3. `POST /api/yunxiao/import` 用选中的 id 创建周报。可选字段与表格确认相同：`moduleAutoMerge`（boolean，省略默认 `true`）、`materials`（`{ projects, issues, nextWeek }`，三者均为数组）。传入 `materials` 则原样作为草稿的 projects / issues / nextWeek，不再做服务端模块合并。首页「从云效导入」和「上传表格导入」共用同一份草稿预览：可在同一分区多选合并并撤销；确认按钮旁的「按模块自动归并」默认勾选，对应 `moduleAutoMerge`。未手改预览时不传 `materials`。手改后把三个分区放进 `materials`（问题区在「本期无」时传空数组）。若服务端把 `issues` 存成数组，打开草稿时客户端会规范成 `{ empty, items }`。
+3. `POST /api/yunxiao/import` 用选中的 id 创建周报。可选字段与表格确认相同：`moduleAutoMerge`（boolean，省略默认 `true`）、`materials`（`{ projects, issues, nextWeek }`，三者均为数组）。传入 `materials` 则原样作为草稿的 projects / issues / nextWeek，不再做服务端模块合并。首页「从云效导入」和「上传表格导入」共用同一份草稿预览：同一分区至少选 2 条后点「合并」（标题取较长正式名，等长取「主项」；正文按勾选顺序拼接并保留 `sourceIds`）。入库前可「撤销本次合并」。确认按钮旁的「按模块自动归并」默认勾选，对应 `moduleAutoMerge`；入库前关闭会重新预览，确认入库后不回退。未手改预览时不传 `materials`。手改后把三个分区放进 `materials`（问题区在「本期无」时传空数组）。若服务端把 `issues` 存成数组，打开草稿时客户端会规范成 `{ empty, items }`。
 4. `GET /api/reports/:id` 核对草稿。
 
 ```bat
@@ -90,9 +90,9 @@ OpenAPI 基址默认 `https://openapi-rdc.aliyuncs.com`，请求头 `x-yunxiao-t
 可选字段（两个确认接口相同，不新增表、不改 `PUT/PATCH /api/reports/:id`）：
 
 - `moduleAutoMerge`（boolean）。省略时默认 `true`：短名包含于长名（及后缀剥离后相同，如「设备」与「设备管理」）并入更长的正式名称。`false` 且没有 `materials` 时仍按状态分桶，但跳过相似模块名合并，模块名保持原样。
-- `materials`：`{ projects, issues, nextWeek }`，三个字段都必须是数组。传入则原样写入草稿对应字段（客户端已合并），忽略服务端自动合并。缺字段、非对象或非数组返回 400。
+- `materials`：`{ projects, issues, nextWeek }`，三个字段都必须是数组。传入则原样写入草稿对应字段（客户端已合并），忽略服务端自动合并。缺字段、非对象或非数组返回 400。手改或合并后的条目可在这些数组里带上已有 JSON 字段：`sourceIds`（字符串数组，勾选顺序）、问题的 `title`、`mergeLines`（`{ text, statusLabel, owner, sourceId }`）。请在现有 `projects` / `issues` / `next_week` JSON 列里原样保存，无需新接口或迁移。`issues` 仍是数组。
 
-`moduleAutoMerge` 不单独落库：`wr_reports` 没有额外 JSON 列，本变更不做迁移。确认前取消仍只走 `POST /api/ingest/cancel`（或客户端丢弃云效选择），不新增撤销接口。
+`moduleAutoMerge` 不单独落库：`wr_reports` 没有额外 JSON 列，本变更不做迁移。确认前取消仍只走 `POST /api/ingest/cancel`（或客户端丢弃云效选择）。合并撤销只在确认入库前的预览里，不新增撤销接口。
 
 `POST /api/ingest/cancel` `{ "previewId" }` 返回 204，丢弃预览，不写 `wr_reports` / `wr_ingest_raw`。预览在内存中，约 30 分钟过期。
 
@@ -144,7 +144,7 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 2. 填写部门、日期（可选汇报人），选择「周工作总结」或「双周工作总结」。
 3. 在素材页可点 **载入样例数据**（7 个项目 + 8 行下周计划，对齐官方周总结模板），或自行按项目卡片填写。
 4. 问题页可勾选「本期无（生成 N/A）」；下周计划可「从重要事项带入项目名」。
-5. 素材页可在「重要事项 / 存在问题与建议 / 下周工作计划」同一分区内多选合并，合并后仍可改标题和正文，并可撤销。不能跨分区合并。
+5. 素材页与导入预览共用同一套分区多选。在「重要事项 / 存在问题与建议 / 下周工作计划」内至少选 2 条后点「合并」。标题取较长正式名，长度相同则取「主项」（默认先勾选的一条）。正文按勾选顺序拼接，每行前加 `[状态·负责人]`（缺的部分省略），并保留每条 `sourceId`。入库前可「撤销本次合并」；确认入库后不能再全局撤销。不能跨分区合并。
 6. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
 7. **导出 PPTX**，用 PowerPoint 或 WPS 打开。导出字体指定为微软雅黑（`Microsoft YaHei`），在中文 Windows / WPS 下可正常显示。
 

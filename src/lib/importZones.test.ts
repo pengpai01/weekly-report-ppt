@@ -25,6 +25,13 @@ describe("import zone preview", () => {
       expect(client.issues.items.map((item) => item.text)).toEqual(server.issues.items.map((item) => item.text));
       expect(client.nextWeek.map((row) => row.projectName)).toEqual(server.nextWeek.map((row) => row.projectName));
       expect(client.nextWeek.map((row) => row.items)).toEqual(server.nextWeek.map((row) => row.items));
+      if (moduleAutoMerge) {
+        expect(client.projects[0]?.sourceIds).toEqual(["1", "2"]);
+      } else {
+        expect(client.projects.map((project) => project.sourceIds)).toEqual([["1"], ["2"]]);
+      }
+      expect(client.issues.items[0]?.sourceId).toBe("b1");
+      expect(client.nextWeek[0]?.sourceId).toBe("n1");
     }
   });
 

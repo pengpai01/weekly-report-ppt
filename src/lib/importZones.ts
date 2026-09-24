@@ -1,4 +1,4 @@
-import type { ProjectStatus } from "../types";
+import type { MergeLine, ProjectStatus } from "../types";
 import { createId } from "./format";
 import type { ZoneSnapshot } from "./zoneMerge";
 
@@ -13,6 +13,8 @@ import type { ZoneSnapshot } from "./zoneMerge";
  */
 export type PreviewInput = {
   id?: string;
+  /** Spreadsheet 来源ID. Falls back to `id` (Yunxiao work item id). */
+  sourceId?: string;
   title: string;
   status?: string;
   category?: string;
@@ -105,7 +107,17 @@ type ProjectDraft = {
   bullets: string[];
   statuses: string[];
   sourceIds: string[];
+  mergeLines: MergeLine[];
 };
+
+function lineMeta(item: PreviewInput, sourceId: string): MergeLine {
+  return {
+    text: fullText(item),
+    ...(item.status?.trim() ? { statusLabel: item.status.trim() } : {}),
+    ...(item.assignee?.trim() ? { owner: item.assignee.trim() } : {}),
+    sourceId,
+  };
+}
 
 function mergeModuleGroups(groups: Map<string, ProjectDraft>): ProjectDraft[] {
   const names = [...groups.keys()];
@@ -134,6 +146,7 @@ function mergeModuleGroups(groups: Map<string, ProjectDraft>): ProjectDraft[] {
         bullets: [...draft.bullets],
         statuses: [...draft.statuses],
         sourceIds: [...draft.sourceIds],
+        mergeLines: [...draft.mergeLines],
       });
       continue;
     }
@@ -141,6 +154,7 @@ function mergeModuleGroups(groups: Map<string, ProjectDraft>): ProjectDraft[] {
     cluster.bullets.push(...draft.bullets);
     cluster.statuses.push(...draft.statuses);
     cluster.sourceIds.push(...draft.sourceIds);
+    cluster.mergeLines.push(...draft.mergeLines);
   }
   return [...merged.values()];
 }
@@ -152,14 +166,29 @@ export function buildZoneSnapshot(items: PreviewInput[], moduleAutoMerge = true)
 
   items.forEach((item, index) => {
     const bucket = classify(item);
-    const sourceId = item.id || `row-${index + 1}`;
+    const sourceId = item.sourceId?.trim() || item.id || `row-${index + 1}`;
     if (bucket === "skip") return;
     if (bucket === "issues") {
-      issueItems.push({ id: `issue:${sourceId}`, text: fullText(item) });
+      const title = item.title?.trim();
+      issueItems.push({
+        id: `issue:${sourceId}`,
+        text: fullText(item),
+        ...(title ? { title } : {}),
+        sourceId,
+        sourceIds: [sourceId],
+        mergeLines: [lineMeta(item, sourceId)],
+      });
       return;
     }
     if (bucket === "nextWeek") {
-      nextWeek.push({ id: `plan:${sourceId}`, projectName: "", items: [fullText(item)] });
+      nextWeek.push({
+        id: `plan:${sourceId}`,
+        projectName: "",
+        items: [fullText(item)],
+        sourceId,
+        sourceIds: [sourceId],
+        mergeLines: [lineMeta(item, sourceId)],
+      });
       return;
     }
     const name = resolveProjectName(item.title, item.module);
@@ -168,6 +197,7 @@ export function buildZoneSnapshot(items: PreviewInput[], moduleAutoMerge = true)
       bullets: [formatBullet(item)],
       statuses: [item.status || ""],
       sourceIds: [sourceId],
+      mergeLines: [lineMeta(item, sourceId)],
     };
     const existing = projectsByModule.get(name);
     if (!existing) {
@@ -177,6 +207,7 @@ export function buildZoneSnapshot(items: PreviewInput[], moduleAutoMerge = true)
     existing.bullets.push(...draft.bullets);
     existing.statuses.push(...draft.statuses);
     existing.sourceIds.push(...draft.sourceIds);
+    existing.mergeLines.push(...draft.mergeLines);
   });
 
   const grouped = moduleAutoMerge ? mergeModuleGroups(projectsByModule) : [...projectsByModule.values()];
@@ -186,6 +217,8 @@ export function buildZoneSnapshot(items: PreviewInput[], moduleAutoMerge = true)
       name: draft.name,
       bullets: draft.bullets,
       status: projectStatusFor(draft.statuses),
+      ...(draft.sourceIds.length ? { sourceId: draft.sourceIds[0], sourceIds: draft.sourceIds } : {}),
+      ...(draft.mergeLines.length ? { mergeLines: draft.mergeLines } : {}),
     })),
     issues: { empty: issueItems.length === 0, items: issueItems },
     nextWeek,

@@ -1,4 +1,4 @@
-import type { IssueItem, NextWeekRow, Project, ProjectStatus } from "../types";
+import type { IssueItem, MergeLine, NextWeekRow, Project } from "../types";
 import { createId } from "./format";
 
 export type MergeZone = "projects" | "issues" | "nextWeek";
@@ -11,10 +11,13 @@ export type ZoneSnapshot = {
 
 export type ZoneSelection = {
   zone: MergeZone | null;
+  /** Checkbox order. Bodies are concatenated in this order, not list order. */
   ids: string[];
+  /** Tie-break for equal-length titles. Defaults to the first selected id. */
+  primaryId: string | null;
 };
 
-export const EMPTY_SELECTION: ZoneSelection = { zone: null, ids: [] };
+export const EMPTY_SELECTION: ZoneSelection = { zone: null, ids: [], primaryId: null };
 
 export const ZONE_LABEL: Record<MergeZone, string> = {
   projects: "重要事项",
@@ -37,47 +40,99 @@ export function zonesToConfirmMaterials(zones: ZoneSnapshot) {
   };
 }
 
+type Titled = { id: string; title: string };
+
 /**
- * Combine titles: identical or contained names keep the longer formal name;
- * otherwise join distinct titles with 「、」.
+ * Longer trimmed formal name wins. When several share that length, use 「主项」
+ * if it is one of them; otherwise the first of those names in selection order.
  */
-export function combineTitles(titles: string[]): string {
-  let result = "";
-  for (const raw of titles) {
-    const next = raw.trim();
-    if (!next) continue;
-    if (!result) {
-      result = next;
-      continue;
-    }
-    if (result === next || result.includes(next)) continue;
-    if (next.includes(result)) {
-      result = next;
-      continue;
-    }
-    result = `${result}、${next}`;
-  }
-  return result;
+export function pickMergeTitle(items: Titled[], primaryId?: string | null): string {
+  const ranked = items
+    .map((item) => ({ id: item.id, title: item.title.trim() }))
+    .filter((item) => item.title);
+  if (!ranked.length) return "";
+  const maxLen = Math.max(...ranked.map((item) => item.title.length));
+  const longest = ranked.filter((item) => item.title.length === maxLen);
+  return (longest.find((item) => item.id === primaryId) ?? longest[0]).title;
 }
 
-/** Append body lines in order, dropping blanks and exact duplicates. */
-export function appendBodies(groups: string[][]): string[] {
+/** `[状态·负责人]`, dropping whichever part is missing. Blank lines stay blank. */
+export function prefixLine(line: string, statusLabel?: string, owner?: string): string {
+  const text = line.trim();
+  if (!text) return "";
+  const parts = [statusLabel?.trim(), owner?.trim()].filter(Boolean);
+  if (!parts.length) return text;
+  const prefix = `[${parts.join("·")}] `;
+  if (text.startsWith(prefix)) return text;
+  return `${prefix}${text}`;
+}
+
+function prefixedLines(text: string, statusLabel?: string, owner?: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => prefixLine(line, statusLabel, owner))
+    .filter((line) => line !== "");
+}
+
+function bodyLines(item: {
+  mergeLines?: MergeLine[];
+  bullets?: string[];
+  text?: string;
+  items?: string[];
+  statusLabel?: string;
+  owner?: string;
+}): string[] {
+  if (item.mergeLines?.length) {
+    return item.mergeLines.flatMap((line) => prefixedLines(line.text, line.statusLabel, line.owner));
+  }
+  if (item.bullets) return item.bullets.flatMap((line) => prefixedLines(line, item.statusLabel, item.owner));
+  if (item.text != null) return prefixedLines(item.text, item.statusLabel, item.owner);
+  return (item.items ?? []).flatMap((line) => prefixedLines(line, item.statusLabel, item.owner));
+}
+
+function collectSourceIds(
+  items: { sourceIds?: string[]; sourceId?: string; mergeLines?: MergeLine[] }[],
+): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const group of groups) {
-    for (const raw of group) {
-      const text = raw.trim();
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      out.push(text);
-    }
+  const push = (id?: string) => {
+    const value = id?.trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+  for (const item of items) {
+    if (item.sourceIds?.length) item.sourceIds.forEach(push);
+    else push(item.sourceId);
+    item.mergeLines?.forEach((line) => push(line.sourceId));
   }
   return out;
 }
 
-function projectStatus(items: Project[]): ProjectStatus | undefined {
-  if (items.some((item) => item.status === "in_progress")) return "in_progress";
-  return items.find((item) => item.status)?.status;
+function formalFallback(lines: string[]): string {
+  for (const line of lines) {
+    const stripped = line.trim().replace(/^\[[^\]\n]*\]\s*/, "");
+    if (stripped) return stripped;
+  }
+  return "";
+}
+
+function issueTitle(item: IssueItem): string {
+  return item.title?.trim() || formalFallback(item.text.split("\n"));
+}
+
+function planTitle(item: NextWeekRow): string {
+  return item.projectName.trim() || formalFallback(item.items);
+}
+
+function orderedPick<T extends { id: string }>(items: T[], ids: string[]): T[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const picked: T[] = [];
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (item) picked.push(item);
+  }
+  return picked;
 }
 
 function assertSameZone(found: number, requested: number) {
@@ -85,52 +140,84 @@ function assertSameZone(found: number, requested: number) {
   if (found !== requested) throw new Error("只能合并同一分区内的条目");
 }
 
+function earliestIndex<T extends { id: string }>(items: T[], ids: string[]): number {
+  const idSet = new Set(ids);
+  return items.findIndex((item) => idSet.has(item.id));
+}
+
 /**
  * Merge selected rows inside one zone. Other zones are copied through.
- * The merged row replaces the earliest selected row and stays editable.
+ * Title uses length, then 「主项」. Bodies follow selection order.
+ * The merged row stays at the earliest selected list index and stays editable.
+ * Undo history is not stored on the snapshot.
  */
-export function mergeZoneItems(snapshot: ZoneSnapshot, zone: MergeZone, ids: string[]): ZoneSnapshot {
-  const idSet = new Set(ids);
-  if (idSet.size < 2) throw new Error("请在同一分区至少选择 2 条");
+export function mergeZoneItems(
+  snapshot: ZoneSnapshot,
+  zone: MergeZone,
+  ids: string[],
+  primaryId?: string | null,
+): ZoneSnapshot {
+  const requested = new Set(ids);
+  if (requested.size < 2) throw new Error("请在同一分区至少选择 2 条");
 
   if (zone === "projects") {
-    const picked = snapshot.projects.filter((item) => idSet.has(item.id));
-    assertSameZone(picked.length, idSet.size);
-    const firstIndex = snapshot.projects.findIndex((item) => idSet.has(item.id));
-    const bullets = appendBodies(picked.map((item) => item.bullets));
+    const picked = orderedPick(snapshot.projects, ids);
+    assertSameZone(picked.length, requested.size);
+    const primary = picked.find((item) => item.id === primaryId) ?? picked[0];
+    const lines = picked.flatMap((item) => bodyLines(item));
+    const sourceIds = collectSourceIds(picked);
     const merged: Project = {
       id: createId(),
-      name: combineTitles(picked.map((item) => item.name)),
-      bullets: bullets.length ? bullets : [""],
-      status: projectStatus(picked),
+      name: pickMergeTitle(
+        picked.map((item) => ({ id: item.id, title: item.name })),
+        primary.id,
+      ),
+      bullets: lines.length ? lines : [""],
+      status: primary.status,
+      ...(sourceIds.length ? { sourceIds } : {}),
     };
-    const projects = snapshot.projects.filter((item) => !idSet.has(item.id));
-    projects.splice(firstIndex, 0, merged);
+    const projects = snapshot.projects.filter((item) => !requested.has(item.id));
+    projects.splice(earliestIndex(snapshot.projects, ids), 0, merged);
     return { ...snapshot, projects };
   }
 
   if (zone === "issues") {
-    const picked = snapshot.issues.items.filter((item) => idSet.has(item.id));
-    assertSameZone(picked.length, idSet.size);
-    const firstIndex = snapshot.issues.items.findIndex((item) => idSet.has(item.id));
-    const lines = appendBodies(picked.map((item) => item.text.split("\n")));
-    const merged: IssueItem = { id: createId(), text: lines.join("\n") };
-    const items = snapshot.issues.items.filter((item) => !idSet.has(item.id));
-    items.splice(firstIndex, 0, merged);
+    const picked = orderedPick(snapshot.issues.items, ids);
+    assertSameZone(picked.length, requested.size);
+    const primary = picked.find((item) => item.id === primaryId) ?? picked[0];
+    const lines = picked.flatMap((item) => bodyLines(item));
+    const sourceIds = collectSourceIds(picked);
+    const title = pickMergeTitle(
+      picked.map((item) => ({ id: item.id, title: issueTitle(item) })),
+      primary.id,
+    );
+    const merged: IssueItem = {
+      id: createId(),
+      ...(title ? { title } : {}),
+      text: lines.join("\n"),
+      ...(sourceIds.length ? { sourceIds } : {}),
+    };
+    const items = snapshot.issues.items.filter((item) => !requested.has(item.id));
+    items.splice(earliestIndex(snapshot.issues.items, ids), 0, merged);
     return { ...snapshot, issues: { empty: false, items } };
   }
 
-  const picked = snapshot.nextWeek.filter((item) => idSet.has(item.id));
-  assertSameZone(picked.length, idSet.size);
-  const firstIndex = snapshot.nextWeek.findIndex((item) => idSet.has(item.id));
-  const planItems = appendBodies(picked.map((item) => item.items));
+  const picked = orderedPick(snapshot.nextWeek, ids);
+  assertSameZone(picked.length, requested.size);
+  const primary = picked.find((item) => item.id === primaryId) ?? picked[0];
+  const lines = picked.flatMap((item) => bodyLines(item));
+  const sourceIds = collectSourceIds(picked);
   const merged: NextWeekRow = {
     id: createId(),
-    projectName: combineTitles(picked.map((item) => item.projectName)),
-    items: planItems.length ? planItems : [""],
+    projectName: pickMergeTitle(
+      picked.map((item) => ({ id: item.id, title: planTitle(item) })),
+      primary.id,
+    ),
+    items: lines.length ? lines : [""],
+    ...(sourceIds.length ? { sourceIds } : {}),
   };
-  const nextWeek = snapshot.nextWeek.filter((item) => !idSet.has(item.id));
-  nextWeek.splice(firstIndex, 0, merged);
+  const nextWeek = snapshot.nextWeek.filter((item) => !requested.has(item.id));
+  nextWeek.splice(earliestIndex(snapshot.nextWeek, ids), 0, merged);
   return { ...snapshot, nextWeek };
 }
 
@@ -142,16 +229,33 @@ export function toggleSelection(
   if (current.zone && current.zone !== zone && current.ids.length > 0) {
     return { selection: current, error: "只能合并同一分区内的条目" };
   }
-  const ids = new Set(current.zone === zone ? current.ids : []);
-  if (ids.has(id)) ids.delete(id);
-  else ids.add(id);
-  const nextIds = [...ids];
+  const base = current.zone === zone ? current.ids : [];
+  const ids = base.includes(id) ? base.filter((item) => item !== id) : [...base, id];
+  let primaryId = current.zone === zone ? current.primaryId : null;
+  if (!ids.length) primaryId = null;
+  else if (!primaryId || !ids.includes(primaryId)) primaryId = ids[0];
   return {
-    selection: { zone: nextIds.length ? zone : null, ids: nextIds },
+    selection: { zone: ids.length ? zone : null, ids, primaryId },
     error: null,
   };
 }
 
+export function setPrimary(selection: ZoneSelection, id: string): ZoneSelection {
+  if (!selection.ids.includes(id)) return selection;
+  return { ...selection, primaryId: id };
+}
+
 export function canMergeSelection(selection: ZoneSelection): boolean {
   return selection.zone != null && selection.ids.length >= 2;
+}
+
+/** Drop line-level status so an edited body is stored as the user left it. */
+export function clearLineMeta<T extends { statusLabel?: string; owner?: string; mergeLines?: MergeLine[] }>(
+  item: T,
+): T {
+  const next = { ...item };
+  delete next.statusLabel;
+  delete next.owner;
+  delete next.mergeLines;
+  return next;
 }
