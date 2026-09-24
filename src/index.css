@@ -923,6 +923,18 @@ a { color: inherit; }
   align-items: flex-start;
   padding-top: 8px;
 }
+.merge-primary {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--gold-soft);
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
 .workitem-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .progress-card {
   width: min(420px, calc(100% - 32px));

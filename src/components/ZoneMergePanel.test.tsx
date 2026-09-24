@@ -17,8 +17,10 @@ describe("shared merge preview", () => {
     expect(html).toContain("重要事项");
     expect(html).toContain("存在问题与建议");
     expect(html).toContain("下周工作计划");
-    expect(html).toContain("合并所选");
-    expect(html).toContain("撤销合并");
+    expect(html).toContain(">合并<");
+    expect(html).not.toContain("合并所选");
+    expect(html).toContain("撤销本次合并");
+    expect(html).toContain("主项");
     expect(html).toContain("设备管理");
     expect(html).toContain("登录失败");
     expect(html).toContain('disabled=""');
@@ -27,6 +29,7 @@ describe("shared merge preview", () => {
   it("renders the module auto-merge toggle checked by default at the call site", () => {
     const html = renderToStaticMarkup(<AutoMergeToggle checked onChange={() => undefined} />);
     expect(html).toContain("按模块自动归并");
+    expect(html).toContain("入库前关闭可重新预览；确认入库后不回退");
     expect(html).toContain('checked=""');
   });
 });

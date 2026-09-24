@@ -64,7 +64,7 @@ function MaterialsForm({ report }: { report: Report }) {
         <div className="panel">
           <h2>录入素材</h2>
           <p className="hint">
-            按项目填写进展要点。勾选同一分区内至少 2 条可合并，合并后仍可编辑，并可撤销。问题可留空（将生成 N/A 页）。
+            按项目填写进展要点。勾选同一分区内至少 2 条可合并，合并后仍可编辑。撤销本次合并只在本页，不另请求接口；当前内容随草稿保存。问题可留空（将生成 N/A 页）。
           </p>
           {error ? <div className="error">{error}</div> : null}
           {dupes.length ? (

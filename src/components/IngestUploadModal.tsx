@@ -15,7 +15,7 @@ import {
   INGEST_TEMPLATE_XLSX,
   YUNZHIJIA_NOTE,
 } from "../lib/ingestCopy";
-import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import { confirmMergeOptions, type ImportMergeOptions, type ZoneSnapshot } from "../lib/zoneMerge";
 import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
 function isSpreadsheetName(name: string): boolean {
@@ -110,13 +110,12 @@ export function IngestUploadModal({
 
   const okRows = useMemo(() => preview?.rows.filter((row) => row.ok) ?? [], [preview]);
   const previewKey = `${preview?.previewId ?? ""}:${autoMerge ? "1" : "0"}:${okRows.map((row) => row.row).join(",")}`;
-  const edited = manual?.key === previewKey ? manual.zones : null;
-  const zones = useMemo(
+  const baseline = useMemo(
     () =>
-      edited ??
       buildZoneSnapshot(
         okRows.map((row) => ({
           id: `${row.row}-${row.sourceId ?? ""}`,
+          sourceId: row.sourceId,
           title: row.title,
           status: row.status,
           module: row.module,
@@ -125,8 +124,10 @@ export function IngestUploadModal({
         })),
         autoMerge,
       ),
-    [edited, okRows, autoMerge],
+    [okRows, autoMerge],
   );
+  const edited = manual?.key === previewKey ? manual.zones : null;
+  const zones = edited ?? baseline;
 
   const confirm = async () => {
     if (!preview?.previewId || busy || uploading) return;
@@ -136,10 +137,7 @@ export function IngestUploadModal({
     }
     setError(null);
     try {
-      await onConfirm(preview.previewId, {
-        moduleAutoMerge: autoMerge,
-        zones: edited ?? undefined,
-      });
+      await onConfirm(preview.previewId, confirmMergeOptions(autoMerge, zones, baseline));
     } catch (err) {
       setError(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
     }
@@ -241,7 +239,7 @@ export function IngestUploadModal({
                 <p className="hint">
                   {edited
                     ? "已按你的调整预览。确认后按此内容写入草稿。错误行不会进入正文。"
-                    : "仅成功行进入预览。未改预览时，确认后以服务端映射为准（含去重）。开启「按模块自动归并」时，相近模块名合并，短名包含于长名则保留较长正式名。"}
+                    : "仅成功行进入预览。未改预览时，确认后以服务端映射为准（含去重）。「按模块自动归并」去掉管理/系统/平台/软件/模块等后缀后，短名包含于长名则并入较长正式名。入库前关闭开关会重新预览；确认入库后不回退。"}
                 </p>
                 <ZoneMergePanel
                   scrollable

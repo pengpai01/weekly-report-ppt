@@ -13,22 +13,48 @@ export type SlideType =
   | "plan"
   | "closing";
 
+/** One source line kept so a later manual merge can prefix `[状态·负责人]` and retain sourceId. */
+export interface MergeLine {
+  text: string;
+  statusLabel?: string;
+  owner?: string;
+  sourceId?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   bullets: string[];
   status?: ProjectStatus;
+  /** Display status used only when prefixing body lines. Not the slide badge enum. */
+  statusLabel?: string;
+  owner?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  mergeLines?: MergeLine[];
 }
 
 export interface IssueItem {
   id: string;
   text: string;
+  /** Formal name used by manual merge. Body stays in `text`. */
+  title?: string;
+  statusLabel?: string;
+  owner?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  mergeLines?: MergeLine[];
 }
 
 export interface NextWeekRow {
   id: string;
   projectName: string;
   items: string[];
+  statusLabel?: string;
+  owner?: string;
+  sourceId?: string;
+  sourceIds?: string[];
+  mergeLines?: MergeLine[];
 }
 
 export interface CoverPayload {

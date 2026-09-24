@@ -4,7 +4,9 @@ import {
   EMPTY_SELECTION,
   ZONE_LABEL,
   canMergeSelection,
+  clearLineMeta,
   mergeZoneItems,
+  setPrimary,
   toggleSelection,
   type MergeZone,
   type ZoneSelection,
@@ -23,7 +25,7 @@ export function AutoMergeToggle({
   onChange: (next: boolean) => void;
 }) {
   return (
-    <label className="auto-merge-toggle">
+    <label className="auto-merge-toggle" title="入库前关闭可重新预览；确认入库后不回退">
       <input
         type="checkbox"
         checked={checked}
@@ -68,7 +70,7 @@ export function ZoneMergePanel({
       return;
     }
     try {
-      const next = mergeZoneItems(value, selection.zone, selection.ids);
+      const next = mergeZoneItems(value, selection.zone, selection.ids, selection.primaryId);
       setUndo((stack) => [...stack, value]);
       setSelection(EMPTY_SELECTION);
       setError("");
@@ -91,8 +93,8 @@ export function ZoneMergePanel({
   const statusText = error
     ? error
     : selection.ids.length >= 2
-      ? `已选 ${selection.ids.length} 条（${zoneName}），可合并`
-      : "只能合并同一分区内的条目，且至少选择 2 条。标题保留较长正式名或用顿号连接，正文追加，合并后仍可编辑。";
+      ? `已选 ${selection.ids.length} 条（${zoneName}）。标题取较长名称，等长取主项。`
+      : "只能合并同一分区。至少选择 2 条后点「合并」。标题取较长名称，等长取主项（默认先勾选）。正文按勾选顺序拼接，每行前加 [状态·负责人]。入库前可撤销本次合并。";
 
   const selected = new Set(selection.ids);
   const activeZone = selection.zone;
@@ -103,15 +105,15 @@ export function ZoneMergePanel({
         <p className={error ? "error merge-status" : "hint merge-status"}>{statusText}</p>
         <div className="inline-actions">
           <button className="btn btn-primary btn-sm" disabled={!canMergeSelection(selection)} onClick={mergeSelected}>
-            合并所选
+            合并
           </button>
           <button
             className="btn btn-ghost btn-sm"
             disabled={undo.length === 0}
-            title="恢复到合并前的分区内容"
+            title="恢复本次合并前的条目。确认入库后不可撤销。"
             onClick={undoMerge}
           >
-            撤销合并
+            撤销本次合并
           </button>
         </div>
       </div>
@@ -142,6 +144,11 @@ export function ZoneMergePanel({
                 </label>
                 <div>
                   <div className="project-head">
+                    <PrimaryMark
+                      selected={activeZone === "projects" && selected.has(project.id)}
+                      primary={activeZone === "projects" && selection.primaryId === project.id}
+                      onSetPrimary={() => setSelection(setPrimary(selection, project.id))}
+                    />
                     <span className="drag-handle">{index + 1}</span>
                     <input
                       className="text-input"
@@ -195,12 +202,12 @@ export function ZoneMergePanel({
                             ...value,
                             projects: value.projects.map((item) =>
                               item.id === project.id
-                                ? {
+                                ? clearLineMeta({
                                     ...item,
                                     bullets: item.bullets.map((line, lineIndex) =>
                                       lineIndex === bulletIndex ? event.target.value : line,
                                     ),
-                                  }
+                                  })
                                 : item,
                             ),
                           })
@@ -213,7 +220,10 @@ export function ZoneMergePanel({
                             ...value,
                             projects: value.projects.map((item) =>
                               item.id === project.id
-                                ? { ...item, bullets: item.bullets.filter((_, lineIndex) => lineIndex !== bulletIndex) }
+                                ? clearLineMeta({
+                                    ...item,
+                                    bullets: item.bullets.filter((_, lineIndex) => lineIndex !== bulletIndex),
+                                  })
                                 : item,
                             ),
                           })
@@ -229,7 +239,7 @@ export function ZoneMergePanel({
                       onChange({
                         ...value,
                         projects: value.projects.map((item) =>
-                          item.id === project.id ? { ...item, bullets: [...item.bullets, ""] } : item,
+                          item.id === project.id ? clearLineMeta({ ...item, bullets: [...item.bullets, ""] }) : item,
                         ),
                       })
                     }
@@ -288,6 +298,31 @@ export function ZoneMergePanel({
                     onChange={() => toggle("issues", item.id)}
                   />
                 </label>
+                <div>
+                  <div className="project-head">
+                    <PrimaryMark
+                      selected={activeZone === "issues" && selected.has(item.id)}
+                      primary={activeZone === "issues" && selection.primaryId === item.id}
+                      onSetPrimary={() => setSelection(setPrimary(selection, item.id))}
+                    />
+                    <input
+                      className="text-input"
+                      placeholder="标题"
+                      aria-label={`问题标题 ${index + 1}`}
+                      value={item.title ?? ""}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          issues: {
+                            ...value.issues,
+                            items: value.issues.items.map((row) =>
+                              row.id === item.id ? { ...row, title: event.target.value } : row,
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  </div>
                 <div className="bullet-row">
                   <textarea
                     className="text-input"
@@ -299,7 +334,7 @@ export function ZoneMergePanel({
                         issues: {
                           ...value.issues,
                           items: value.issues.items.map((row) =>
-                            row.id === item.id ? { ...row, text: event.target.value } : row,
+                            row.id === item.id ? clearLineMeta({ ...row, text: event.target.value }) : row,
                           ),
                         },
                       })
@@ -316,6 +351,7 @@ export function ZoneMergePanel({
                   >
                     删除
                   </button>
+                </div>
                 </div>
               </article>
             ))}
@@ -357,6 +393,11 @@ export function ZoneMergePanel({
                 </label>
                 <div>
                   <div className="project-head">
+                    <PrimaryMark
+                      selected={activeZone === "nextWeek" && selected.has(row.id)}
+                      primary={activeZone === "nextWeek" && selection.primaryId === row.id}
+                      onSetPrimary={() => setSelection(setPrimary(selection, row.id))}
+                    />
                     <input
                       className="text-input"
                       placeholder="项目"
@@ -385,7 +426,9 @@ export function ZoneMergePanel({
                       onChange({
                         ...value,
                         nextWeek: value.nextWeek.map((item) =>
-                          item.id === row.id ? { ...item, items: event.target.value.split("\n") } : item,
+                          item.id === row.id
+                            ? clearLineMeta({ ...item, items: event.target.value.split("\n") })
+                            : item,
                         ),
                       })
                     }
@@ -397,6 +440,24 @@ export function ZoneMergePanel({
         )}
       </section>
     </div>
+  );
+}
+
+function PrimaryMark({
+  selected,
+  primary,
+  onSetPrimary,
+}: {
+  selected: boolean;
+  primary: boolean;
+  onSetPrimary: () => void;
+}) {
+  if (!selected) return null;
+  if (primary) return <span className="merge-primary">主项</span>;
+  return (
+    <button type="button" className="btn btn-ghost btn-sm" onClick={onSetPrimary}>
+      设为主项
+    </button>
   );
 }
 

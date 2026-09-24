@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listYunxiaoWorkItems, yunxiaoErrorMessage } from "../lib/api";
 import { buildZoneSnapshot } from "../lib/importZones";
-import type { ImportMergeOptions, ZoneSnapshot } from "../lib/zoneMerge";
+import { confirmMergeOptions, type ImportMergeOptions, type ZoneSnapshot } from "../lib/zoneMerge";
 import type { YunxiaoWorkItem } from "../types";
 import { AutoMergeToggle, ZoneMergePanel } from "./ZoneMergePanel";
 
@@ -91,8 +91,9 @@ export function YunxiaoImportModal({
     [items, selected],
   );
   const previewKey = `${selectedIds.join("\0")}:${autoMerge ? "1" : "0"}`;
+  const baseline = useMemo(() => buildZoneSnapshot(selectedItems, autoMerge), [selectedItems, autoMerge]);
   const edited = manual?.key === previewKey ? manual.zones : null;
-  const zones = edited ?? buildZoneSnapshot(selectedItems, autoMerge);
+  const zones = edited ?? baseline;
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -111,10 +112,7 @@ export function YunxiaoImportModal({
     if (!selectedIds.length || busy) return;
     setError(null);
     try {
-      await onImport(selectedIds, {
-        moduleAutoMerge: autoMerge,
-        zones: edited ?? undefined,
-      });
+      await onImport(selectedIds, confirmMergeOptions(autoMerge, zones, baseline));
     } catch (err) {
       setError(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
     }
@@ -182,7 +180,7 @@ export function YunxiaoImportModal({
             <p className="hint">
               {edited
                 ? "已按你的调整预览。确认后按此内容写入草稿。"
-                : "未改预览时，确认后以服务端映射为准（含去重）。开启「按模块自动归并」时，相近模块名合并，短名包含于长名则保留较长正式名。"}
+                : "未改预览时，确认后以服务端映射为准（含去重）。「按模块自动归并」去掉管理/系统/平台/软件/模块等后缀后，短名包含于长名则并入较长正式名。入库前关闭开关会重新预览；确认入库后不回退。"}
             </p>
             <ZoneMergePanel
               scrollable
