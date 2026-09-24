@@ -59,7 +59,7 @@ function MaterialsForm({ report }: { report: Report }) {
   return (
     <>
       <AppHeader />
-      <div className="page">
+      <div className="page materials-page">
         <Stepper current={2} />
         <div className="panel">
           <h2>录入素材</h2>
