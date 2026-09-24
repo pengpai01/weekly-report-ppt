@@ -1,13 +1,22 @@
-﻿# Official week-summary sample
+# 官方周总结模板
 
-Canonical packaging/reference deck:
+打包与对照用的正式模板：
 
 ```
 templates/week-summary-template.pptx
 ```
 
-**Deprecated (do not add new references):** `templates/week-summary-software-20260911.pptx` — local deploys may still keep a copy for对照; prefer `week-summary-template.pptx`.
+该文件已在仓库中。文档和代码只使用这条相对路径，不要写本机盘符路径。
 
-Runtime PPTX export is generated in the browser by `src/lib/exportPptx.ts` and does **not** require this binary at runtime, but client layout should align with the canonical template above.
+运行时 PPTX 由浏览器里的 `src/lib/exportPptx.ts` 绘制，**不读取**该二进制。版式与正式模板对齐，并补齐周总结产品页：
 
-Do not bake machine-local paths into application code.
+- 封面：标题、部门、日期；有汇报人时展示汇报人
+- 目录与 Part 章节页
+- `projects[]` 一项目一页
+- 问题与建议（可为 N/A）
+- 下周计划表落在页脚之上（每页最多 8 行）
+- 结束页为「感谢聆听」，不含模板结束页上的广告水印
+
+## 已废弃
+
+`week-summary-software-20260911.pptx`（2026.09.11 样例）已废弃。不要新增引用，也不要把它当作打包路径。
