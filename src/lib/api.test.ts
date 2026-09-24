@@ -56,6 +56,7 @@ describe("yunxiao API client", () => {
       expect(init?.method).toBe("POST");
       expect(JSON.parse(String(init?.body))).toEqual({
         itemIds: ["a", "b"],
+        moduleAutoMerge: true,
         reportPartial: { department: "研发" },
       });
       return jsonResponse(201, {
@@ -80,13 +81,20 @@ describe("yunxiao API client", () => {
     expect(report.title).toBe("周工作总结");
   });
 
-  it("omits reportPartial when not provided", async () => {
+  it("omits reportPartial when not provided and can turn module merge off", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ itemIds: ["a"] });
+      expect(JSON.parse(String(init?.body))).toEqual({ itemIds: ["a"], moduleAutoMerge: true });
       return jsonResponse(201, { id: "rep-2" });
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     await importYunxiaoWorkItems(["a"]);
+
+    const off = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ itemIds: ["a"], moduleAutoMerge: false });
+      return jsonResponse(201, { id: "rep-3" });
+    });
+    globalThis.fetch = off as unknown as typeof fetch;
+    await importYunxiaoWorkItems(["a"], undefined, { moduleAutoMerge: false });
   });
 
   it("maps service-down and 4xx failures to readable messages", async () => {
@@ -158,6 +166,7 @@ describe("ingest API client", () => {
       expect(init?.method).toBe("POST");
       expect(JSON.parse(String(init?.body))).toEqual({
         previewId: "p1",
+        moduleAutoMerge: true,
         reportPartial: { department: "研发" },
       });
       return jsonResponse(201, { id: "rep-upload", title: "周工作总结" });

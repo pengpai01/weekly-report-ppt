@@ -4,6 +4,7 @@ import { AppHeader } from "../components/AppHeader";
 import { IngestUploadModal } from "../components/IngestUploadModal";
 import { YunxiaoImportModal } from "../components/YunxiaoImportModal";
 import { ingestErrorMessage, yunxiaoErrorMessage } from "../lib/api";
+import { zonesToConfirmMaterials, type ImportMergeOptions } from "../lib/zoneMerge";
 import { continueFrom } from "../lib/report";
 import { STATUS_LABEL } from "../lib/report";
 import { useReports } from "../store";
@@ -64,12 +65,17 @@ export function HomePage() {
       : undefined;
   };
 
-  const importSelected = async (itemIds: string[]) => {
+  const importOptions = (options: ImportMergeOptions) => ({
+    moduleAutoMerge: options.moduleAutoMerge,
+    materials: options.zones ? zonesToConfirmMaterials(options.zones) : undefined,
+  });
+
+  const importSelected = async (itemIds: string[], options: ImportMergeOptions) => {
     setBusy(true);
     try {
-      const report = await importFromYunxiao(itemIds, lastPartial());
+      const report = await importFromYunxiao(itemIds, lastPartial(), importOptions(options));
       setImportOpen(false);
-      navigate(`/reports/${report.id}/meta`);
+      navigate(`/reports/${report.id}/materials`);
     } catch (err) {
       throw err instanceof Error ? err : new Error(yunxiaoErrorMessage(err, "导入失败，请稍后重试。"));
     } finally {
@@ -77,12 +83,12 @@ export function HomePage() {
     }
   };
 
-  const confirmUpload = async (previewId: string) => {
+  const confirmUpload = async (previewId: string, options: ImportMergeOptions) => {
     setBusy(true);
     try {
-      const report = await importFromUpload(previewId, lastPartial());
+      const report = await importFromUpload(previewId, lastPartial(), importOptions(options));
       setUploadOpen(false);
-      navigate(`/reports/${report.id}/meta`);
+      navigate(`/reports/${report.id}/materials`);
     } catch (err) {
       throw err instanceof Error ? err : new Error(ingestErrorMessage(err, "确认导入失败，请稍后重试。"));
     } finally {

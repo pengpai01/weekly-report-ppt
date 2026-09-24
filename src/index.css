@@ -697,17 +697,19 @@ a { color: inherit; }
   box-shadow: var(--shadow);
 }
 .modal.yunxiao-modal {
-  width: min(840px, calc(100% - 32px));
-  max-height: min(88vh, 760px);
+  width: min(920px, calc(100% - 32px));
+  max-height: min(90vh, 860px);
   display: flex;
   flex-direction: column;
+  overflow: auto;
 }
 .modal.yunxiao-modal h3 { margin: 0 0 6px; }
 .modal.ingest-modal {
   width: min(980px, calc(100% - 32px));
-  max-height: min(90vh, 820px);
+  max-height: min(90vh, 860px);
   display: flex;
   flex-direction: column;
+  overflow: auto;
 }
 .modal.ingest-modal h3 { margin: 0 0 6px; }
 .ingest-note {
@@ -829,6 +831,62 @@ a { color: inherit; }
 .workitem-row h3 { margin: 0 0 6px; font-size: 14px; }
 .workitem-row p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .workitem-row input { margin-top: 3px; }
+.confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.auto-merge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.import-preview { margin-top: 14px; }
+.import-preview h4 { margin: 0 0 6px; font-size: 15px; }
+.merge-panel { display: grid; gap: 16px; }
+.merge-panel-scroll { max-height: 360px; overflow: auto; padding-right: 4px; }
+.merge-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.merge-status { margin: 0; flex: 1; }
+.merge-zone h3 { margin: 0; font-size: 15px; }
+.merge-zone-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.merge-list { display: grid; gap: 8px; }
+.merge-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+.merge-item.selected {
+  border-color: var(--blue);
+  background: var(--pale);
+}
+.merge-check {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 8px;
+}
 .workitem-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .progress-card {
   width: min(420px, calc(100% - 32px));

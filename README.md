@@ -70,7 +70,7 @@ npm test
 
 1. 在项目 `.env` 填写 `YUNXIAO_ORG_ID`、`YUNXIAO_PAT`（可选 `YUNXIAO_SPACE_ID` / `YUNXIAO_API_BASE_URL`）。
 2. `GET /api/yunxiao/workitems` 同步并返回缓存项（部署后应非空）。
-3. `POST /api/yunxiao/import` 用选中的 id 创建周报。可选字段与表格确认相同：`moduleAutoMerge`（boolean，省略默认 `true`）、`materials`（`{ projects, issues, nextWeek }`，三者均为数组）。传入 `materials` 则原样作为草稿的 projects / issues / nextWeek，不再做服务端模块合并。
+3. `POST /api/yunxiao/import` 用选中的 id 创建周报。可选字段与表格确认相同：`moduleAutoMerge`（boolean，省略默认 `true`）、`materials`（`{ projects, issues, nextWeek }`，三者均为数组）。传入 `materials` 则原样作为草稿的 projects / issues / nextWeek，不再做服务端模块合并。首页「从云效导入」和「上传表格导入」共用同一份草稿预览：可在同一分区多选合并并撤销；确认按钮旁的「按模块自动归并」默认勾选，对应 `moduleAutoMerge`。未手改预览时不传 `materials`。手改后把三个分区放进 `materials`（问题区在「本期无」时传空数组）。若服务端把 `issues` 存成数组，打开草稿时客户端会规范成 `{ empty, items }`。
 4. `GET /api/reports/:id` 核对草稿。
 
 ```bat
@@ -144,8 +144,9 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 2. 填写部门、日期（可选汇报人），选择「周工作总结」或「双周工作总结」。
 3. 在素材页可点 **载入样例数据**（7 个项目 + 8 行下周计划，对齐官方周总结模板），或自行按项目卡片填写。
 4. 问题页可勾选「本期无（生成 N/A）」；下周计划可「从重要事项带入项目名」。
-5. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
-6. **导出 PPTX**，用 PowerPoint 或 WPS 打开。导出字体指定为微软雅黑（`Microsoft YaHei`），在中文 Windows / WPS 下可正常显示。
+5. 素材页可在「重要事项 / 存在问题与建议 / 下周工作计划」同一分区内多选合并，合并后仍可改标题和正文，并可撤销。不能跨分区合并。
+6. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
+7. **导出 PPTX**，用 PowerPoint 或 WPS 打开。导出字体指定为微软雅黑（`Microsoft YaHei`），在中文 Windows / WPS 下可正常显示。
 
 「从文本一键拆分」是规则启发式（识别 `一、项目` / `①②③`），拆分后需确认。项目卡片仍是主录入方式。
 
