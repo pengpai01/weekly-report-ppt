@@ -908,6 +908,21 @@ a { color: inherit; }
   gap: 12px;
   flex-wrap: wrap;
 }
+/* Materials list can be long. Keep 合并 / 撤销 under the sticky app header
+   so they stay in view. Enablement is unchanged (button disabled until ≥2). */
+.materials-page .merge-toolbar {
+  position: sticky;
+  top: var(--app-header-height, 61px);
+  z-index: 15;
+  align-self: start;
+  background: var(--panel);
+  padding: 8px 0 12px;
+  box-shadow: 0 10px 16px -14px rgba(10, 39, 68, 0.55);
+}
+.materials-page .merge-zone,
+.materials-page .merge-item {
+  scroll-margin-top: calc(var(--app-header-height, 61px) + 88px);
+}
 .merge-status { margin: 0; flex: 1; }
 .merge-zone h3 { margin: 0; font-size: 15px; }
 .merge-zone-head {
