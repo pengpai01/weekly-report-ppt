@@ -1,11 +1,13 @@
-# Official week-summary sample
+﻿# Official week-summary sample
 
-Deployments may place the software weekly sample deck here:
+Canonical packaging/reference deck:
 
 ```
-templates/week-summary-software-20260911.pptx
+templates/week-summary-template.pptx
 ```
 
-This file is a packaging/reference artifact for the 丹娜生物 software week-summary layout (cover, TOC, part dividers, one project per page, issues/N/A, next-week table, closing). Runtime PPTX export is generated in the browser by `src/lib/exportPptx.ts` and does **not** read this binary.
+**Deprecated (do not add new references):** `templates/week-summary-software-20260911.pptx` — local deploys may still keep a copy for对照; prefer `week-summary-template.pptx`.
+
+Runtime PPTX export is generated in the browser by `src/lib/exportPptx.ts` and does **not** require this binary at runtime, but client layout should align with the canonical template above.
 
 Do not bake machine-local paths into application code.
