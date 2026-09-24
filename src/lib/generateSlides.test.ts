@@ -4,7 +4,7 @@ import { createReport } from "./report";
 import { splitProjectsFromText } from "./splitText";
 import { SAMPLE_REPORT_SEED, SAMPLE_SPLIT_TEXT } from "./sampleData";
 import { createId } from "./format";
-import { MAX_BULLETS_PER_PAGE } from "../types";
+import { MAX_BULLETS_PER_PAGE, MAX_PLAN_ROWS_PER_PAGE, type PlanPayload } from "../types";
 
 function reportFromSample() {
   return createReport({
@@ -33,6 +33,26 @@ describe("generateSlides", () => {
 
     const issues = slides.find((s) => s.type === "issues");
     expect(issues?.payload).toMatchObject({ empty: true });
+
+    const planSlides = slides.filter((s) => s.type === "plan");
+    expect(planSlides).toHaveLength(1);
+    expect((planSlides[0].payload as PlanPayload).rows).toHaveLength(MAX_PLAN_ROWS_PER_PAGE);
+  });
+
+  it("starts a second plan page after eight next-week rows", () => {
+    const report = createReport({
+      department: "研发",
+      projects: [{ id: "p1", name: "项目", bullets: ["进展"] }],
+      nextWeek: Array.from({ length: MAX_PLAN_ROWS_PER_PAGE + 1 }, (_, i) => ({
+        id: `n${i}`,
+        projectName: `计划${i + 1}`,
+        items: ["事项"],
+      })),
+    });
+    const plans = generateSlides(report).filter((s) => s.type === "plan");
+    expect(plans).toHaveLength(2);
+    expect((plans[0].payload as PlanPayload).rows).toHaveLength(MAX_PLAN_ROWS_PER_PAGE);
+    expect((plans[1].payload as PlanPayload).rows).toHaveLength(1);
   });
 
   it("splits a project with more than 6 bullets into a continuation page", () => {

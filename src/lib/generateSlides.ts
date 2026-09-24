@@ -15,6 +15,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** Page order matches templates/week-summary-template.pptx. Slides are built here; the template file is not loaded. */
 export function generateSlides(report: Report): Slide[] {
   const slides: Slide[] = [];
 

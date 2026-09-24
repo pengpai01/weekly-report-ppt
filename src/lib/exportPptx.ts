@@ -1,3 +1,9 @@
+/**
+ * Browser PPTX export for the official week-summary layout.
+ * Packaging reference: templates/week-summary-template.pptx
+ * That file is in the repo as the packaging reference; this module draws slides and does not open the binary.
+ * Do not copy the template closing-slide ad watermark.
+ */
 import PptxGenJS from "pptxgenjs";
 import type {
   ClosingPayload,

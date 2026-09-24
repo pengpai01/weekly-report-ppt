@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -8,9 +8,13 @@ import { generateSlides } from "./generateSlides";
 import { buildPresentation, exportFileName } from "./exportPptx";
 import { SAMPLE_REPORT_SEED } from "./sampleData";
 import { createId } from "./format";
-import { MAX_BULLETS_PER_PAGE } from "../types";
+import { MAX_BULLETS_PER_PAGE, MAX_PLAN_ROWS_PER_PAGE } from "../types";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT_DIR = join(SRC_DIR, "../..");
+const OFFICIAL_TEMPLATE = "templates/week-summary-template.pptx";
+const DEPRECATED_TEMPLATE = "week-summary-software-20260911.pptx";
+const EMU_PER_INCH = 914400;
 
 function sampleReport() {
   const report = createReport({
@@ -45,7 +49,45 @@ async function zipSlides(report: ReturnType<typeof createReport>) {
   return { zip, xml, pres };
 }
 
+function tableBottomEmu(slideXml: string): number {
+  const frame = /<p:graphicFrame>[\s\S]*?<a:off x="\d+" y="(\d+)"\/><a:ext cx="\d+" cy="(\d+)"\/>/.exec(
+    slideXml,
+  );
+  expect(frame).toBeTruthy();
+  return Number(frame?.[1]) + Number(frame?.[2]);
+}
+
+function shapeTopEmu(slideXml: string, text: string): number {
+  const block = slideXml.split("<p:sp>").find((part) => part.includes(text));
+  const y = /<a:off x="\d+" y="(\d+)"\/>/.exec(block ?? "");
+  expect(y).toBeTruthy();
+  return Number(y?.[1]);
+}
+
 describe("pptx export", () => {
+  it("documents the official template path and drops the 20260911 sample", () => {
+    const templates = readFileSync(join(ROOT_DIR, "templates/README.md"), "utf8");
+    const readme = readFileSync(join(ROOT_DIR, "README.md"), "utf8");
+    const exporter = readFileSync(join(SRC_DIR, "exportPptx.ts"), "utf8");
+    const slides = readFileSync(join(SRC_DIR, "generateSlides.ts"), "utf8");
+
+    for (const src of [templates, readme, exporter, slides]) {
+      expect(src).toContain(OFFICIAL_TEMPLATE);
+    }
+    for (const src of [templates, exporter, slides]) {
+      expect(src).not.toMatch(/[A-Z]:\\/);
+    }
+    expect(templates).toContain("已废弃");
+    expect(templates).toContain(DEPRECATED_TEMPLATE);
+    expect(templates).not.toContain("仓库里目前没有");
+    expect(readme).not.toContain(DEPRECATED_TEMPLATE);
+    expect(readme).not.toContain("仓库未附带");
+    expect(exporter).not.toContain(DEPRECATED_TEMPLATE);
+    expect(slides).not.toContain(DEPRECATED_TEMPLATE);
+    expect(existsSync(join(ROOT_DIR, OFFICIAL_TEMPLATE))).toBe(true);
+    expect(exporter).not.toMatch(/readFile(Sync)?\(/);
+  });
+
   it("does not hardcode Windows drive paths in the exporter", () => {
     const src = readFileSync(join(SRC_DIR, "exportPptx.ts"), "utf8");
     expect(src).not.toMatch(/[A-Z]:\\/i);
@@ -102,6 +144,9 @@ describe("pptx export", () => {
     expect(plan).toContain("项目");
     expect(plan).toContain("工作内容");
     expect(plan).toContain("形态学鉴定APP");
+    expect(plan.match(/<a:tr\b/g)).toHaveLength(MAX_PLAN_ROWS_PER_PAGE + 1);
+    const footerTop = shapeTopEmu(plan, "软件研发");
+    expect(footerTop - tableBottomEmu(plan)).toBeGreaterThan(0.2 * EMU_PER_INCH);
     expect(closing).toContain("感谢聆听");
     expect(closing).toContain("Thank you");
     expect(closing).not.toContain("1ppt.com");
@@ -147,11 +192,24 @@ describe("pptx export", () => {
     const { xml } = await zipSlides(report);
     expect(xml[0]).toContain("BIWEEKLY REPORT");
     expect(xml[0]).toContain("双周报");
+    expect(xml[0]).not.toContain("汇报人");
     const continued = xml.find((part) => part.includes("（续）"));
     expect(continued).toBeTruthy();
     expect(continued).toContain("7");
     const issues = xml.find((part) => part.includes("存在问题与建议") && part.includes("联调环境不足"));
     expect(issues).toBeTruthy();
     expect(issues).not.toContain("N/A");
+  });
+
+  it("prints the author on the cover when one is set", async () => {
+    const report = sampleReport();
+    report.author = "李四";
+    report.slides = generateSlides(report);
+    const { xml } = await zipSlides(report);
+    expect(xml[0]).toContain("汇报人");
+    expect(xml[0]).toContain("李四");
+    expect(xml[0]).toContain("周工作总结");
+    expect(xml[0]).toContain("软件研发");
+    expect(xml[0]).toContain("2026年09月11日");
   });
 });
