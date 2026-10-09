@@ -97,6 +97,7 @@ function normalizeReportShape(report: Report): Report {
     issues,
     nextWeek: report.nextWeek ?? [],
     slides: report.slides ?? [],
+    images: Array.isArray(report.images) ? report.images : [],
     status: report.status ?? "draft",
   };
 }

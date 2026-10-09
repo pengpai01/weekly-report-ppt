@@ -114,6 +114,15 @@ export interface Slide {
   payload: SlidePayload;
 }
 
+/** Cover mosaic tile. Bytes live on the server; this is metadata only. */
+export interface ReportImage {
+  id: string;
+  slot: "cover-1" | "cover-2" | "cover-3";
+  mime: string;
+  filename: string;
+  byteLength: number;
+}
+
 export interface Report {
   id: string;
   templateType: TemplateType;
@@ -125,6 +134,7 @@ export interface Report {
   issues: { empty: boolean; items: IssueItem[] };
   nextWeek: NextWeekRow[];
   slides: Slide[];
+  images?: ReportImage[];
   status: ReportStatus;
   createdAt: string;
   updatedAt: string;

@@ -8,6 +8,7 @@ import {
   TABLE_PREFIX,
 } from "./config.js";
 import { ensureIngestRawTable } from "./ingest.js";
+import { createMemoryImageRepository, createSqlImageRepository, ensureReportImagesTable } from "./images.js";
 import { ensureYunxiaoItemsTable } from "./yunxiao.js";
 
 export { defaultDataDir, REPORTS_TABLE, TABLE_PREFIX };
@@ -62,12 +63,14 @@ export function createId() {
 }
 
 export function normalizeReport(input = {}, existing) {
+  const fields = { ...input };
+  delete fields.images;
   const templateType =
-    input.templateType ?? existing?.templateType ?? "weekly";
+    fields.templateType ?? existing?.templateType ?? "weekly";
   const base = existing ?? {
     id: input.id || createId(),
     templateType,
-    title: input.title || defaultTitle(templateType),
+    title: fields.title || defaultTitle(templateType),
     department: "",
     date: todayISO(),
     author: "",
@@ -80,23 +83,25 @@ export function normalizeReport(input = {}, existing) {
     updatedAt: nowISO(),
   };
 
-  return {
+  const next = {
     ...base,
-    ...input,
-    id: existing?.id ?? input.id ?? base.id,
+    ...fields,
+    id: existing?.id ?? fields.id ?? base.id,
     templateType,
-    title: input.title ?? base.title ?? defaultTitle(templateType),
-    department: input.department ?? base.department ?? "",
-    date: input.date ?? base.date ?? todayISO(),
-    author: input.author ?? base.author ?? "",
-    projects: input.projects ?? base.projects,
-    issues: input.issues ?? base.issues,
-    nextWeek: input.nextWeek ?? base.nextWeek,
-    slides: input.slides ?? base.slides ?? [],
-    status: input.status ?? base.status ?? "draft",
-    createdAt: existing?.createdAt ?? input.createdAt ?? base.createdAt,
+    title: fields.title ?? base.title ?? defaultTitle(templateType),
+    department: fields.department ?? base.department ?? "",
+    date: fields.date ?? base.date ?? todayISO(),
+    author: fields.author ?? base.author ?? "",
+    projects: fields.projects ?? base.projects,
+    issues: fields.issues ?? base.issues,
+    nextWeek: fields.nextWeek ?? base.nextWeek,
+    slides: fields.slides ?? base.slides ?? [],
+    status: fields.status ?? base.status ?? "draft",
+    createdAt: existing?.createdAt ?? fields.createdAt ?? base.createdAt,
     updatedAt: nowISO(),
   };
+  delete next.images;
+  return next;
 }
 
 function parseJson(value, fallback) {
@@ -156,12 +161,37 @@ export async function ensureOwnTables(pool) {
   await pool.query(CREATE_TABLE_SQL);
   await ensureYunxiaoItemsTable(pool);
   await ensureIngestRawTable(pool);
+  await ensureReportImagesTable(pool);
+}
+
+function imageApi(repo, ensure, getReport) {
+  return {
+    async listImages(reportId) {
+      await ensure();
+      return repo.list(reportId);
+    },
+    async putImage(reportId, image) {
+      await ensure();
+      const existing = await getReport(reportId);
+      if (!existing) throw httpError(404, "Report not found");
+      return repo.put(reportId, image, createId());
+    },
+    async readImage(reportId, imageId) {
+      await ensure();
+      return repo.read(reportId, imageId);
+    },
+    async deleteImage(reportId, imageId) {
+      await ensure();
+      return repo.delete(reportId, imageId);
+    },
+  };
 }
 
 export function createReportStore(options = {}) {
   const dataDir = options.dataDir ?? defaultDataDir();
   const ownsPool = !options.pool;
   const pool = options.pool ?? mysql.createPool(mysqlConfigFromEnv());
+  const imageRepo = createSqlImageRepository(pool);
   let ready = null;
 
   async function ensure() {
@@ -180,7 +210,7 @@ export function createReportStore(options = {}) {
     await ready;
   }
 
-  return {
+  const store = {
     dataDir,
     async list() {
       await ensure();
@@ -260,6 +290,9 @@ export function createReportStore(options = {}) {
     },
     async delete(id) {
       await ensure();
+      const existing = await this.get(id);
+      if (!existing) throw httpError(404, "Report not found");
+      await imageRepo.removeReport(id);
       const [result] = await pool.execute(
         `DELETE FROM \`${REPORTS_TABLE}\` WHERE \`id\` = ?`,
         [id],
@@ -270,17 +303,21 @@ export function createReportStore(options = {}) {
       if (ownsPool) await pool.end();
     },
   };
+  Object.assign(store, imageApi(imageRepo, ensure, (id) => store.get(id)));
+  return store;
 }
 
 export function createMemoryReportStore() {
   /** @type {Map<string, object>} */
   const reports = new Map();
+  const imageRepo = createMemoryImageRepository();
 
   function sortByUpdatedAtDesc(list) {
     return [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  return {
+  const ensure = async () => {};
+  const store = {
     dataDir: defaultDataDir(),
     async list() {
       return sortByUpdatedAtDesc([...reports.values()]);
@@ -303,8 +340,11 @@ export function createMemoryReportStore() {
     },
     async delete(id) {
       if (!reports.has(id)) throw httpError(404, "Report not found");
+      imageRepo.removeReport(id);
       reports.delete(id);
     },
     async close() {},
   };
+  Object.assign(store, imageApi(imageRepo, ensure, (id) => store.get(id)));
+  return store;
 }

@@ -48,3 +48,17 @@ CREATE TABLE IF NOT EXISTS wr_ingest_raw (
   KEY `idx_wr_ingest_raw_preview_id` (`preview_id`),
   KEY `idx_wr_ingest_raw_source_source_id` (`source`, `source_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wr_report_images (
+  `id` VARCHAR(64) NOT NULL,
+  `report_id` VARCHAR(64) NOT NULL,
+  `slot` VARCHAR(32) NOT NULL,
+  `mime` VARCHAR(64) NOT NULL,
+  `filename` VARCHAR(255) NOT NULL DEFAULT '',
+  `byte_length` INT NOT NULL,
+  `bytes` LONGBLOB NOT NULL,
+  `created_at` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_wr_report_images_slot` (`report_id`, `slot`),
+  KEY `idx_wr_report_images_report` (`report_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
