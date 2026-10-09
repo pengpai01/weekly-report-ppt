@@ -111,8 +111,10 @@ describe("project delete undo", () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
     expect(document.body.textContent).toContain("联调");
-    expect(projectCard("设备管理").querySelector(".bullet-row > button")).toBeNull();
-    expect(projectCard("设备管理").textContent).toContain("删除要点");
+    const bullets = projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement;
+    expect(bullets.value).toBe("联调\n上线");
+    expect(projectCard("设备管理").querySelector(".bullet-row")).toBeNull();
+    expect(projectCard("设备管理").textContent).not.toContain("删除要点");
 
     await clickButton("删除项目", projectCard("设备管理"));
     await clickButton("确定删除");
@@ -188,25 +190,10 @@ describe("project delete undo", () => {
     await act(async () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
-    const row = () => projectCard("设备管理").querySelectorAll(".bullet-row")[0] as HTMLElement;
-    expect(row().querySelector(":scope > button")).toBeNull();
-
-    await clickButton("删除要点", row());
-    expect(document.querySelector('[aria-label="确认删除要点"]')?.textContent).toContain("仅删除这一条要点");
-    expect(document.querySelector('[aria-label="确认删除要点"]')?.textContent).toContain("不会删除整个项目");
-    expect(document.body.textContent).not.toContain("同时删除其下全部要点条目");
-    expect(projectCard("设备管理").textContent).toContain("联调");
-    expect(buttons("撤销本次合并")[0].disabled).toBe(true);
-
-    await clickButton("取消");
-    expect(document.querySelector('[aria-label="确认删除要点"]')).toBeNull();
-    expect(projectCard("设备管理").textContent).toContain("联调");
-    expect(projectCard("设备管理").textContent).toContain("上线");
-
-    await clickButton("删除要点", row());
-    await clickButton("确定删除");
-    expect(projectCard("设备管理").textContent).not.toContain("联调");
-    expect(projectCard("设备管理").textContent).toContain("上线");
+    const bullets = projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement;
+    expect(bullets.value).toBe("联调\n上线");
+    expect(projectCard("设备管理").querySelector(".bullet-row")).toBeNull();
+    expect(projectCard("设备管理").textContent).not.toContain("删除要点");
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
     expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
 

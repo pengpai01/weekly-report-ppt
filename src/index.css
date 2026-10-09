@@ -343,6 +343,12 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 .bullet-row textarea { flex: 1; min-height: 58px; }
+.project-bullets-input {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
 .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
 .plan-table { width: 100%; border-collapse: collapse; }
