@@ -6,6 +6,7 @@ import {
   mysqlConfigFromEnv,
   PROJECT_ROOT,
   INGEST_RAW_TABLE,
+  REPORT_IMAGES_TABLE,
   REPORTS_TABLE,
   TABLE_PREFIX,
   YUNXIAO_ITEMS_TABLE,
@@ -25,6 +26,8 @@ describe("isolation constants", () => {
     expect(YUNXIAO_ITEMS_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
     expect(INGEST_RAW_TABLE).toBe("wr_ingest_raw");
     expect(INGEST_RAW_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
+    expect(REPORT_IMAGES_TABLE).toBe("wr_report_images");
+    expect(REPORT_IMAGES_TABLE.startsWith(TABLE_PREFIX)).toBe(true);
   });
 
   it("rejects local paths outside the project root", () => {
@@ -49,6 +52,7 @@ describe("normalizeReport", () => {
     expect(updated.createdAt).toBe(created.createdAt);
     expect(updated.title).toBe("已更新");
     expect(updated.department).toBe("研发");
+    expect("images" in normalizeReport({ images: [{ id: "forged" }] }, created)).toBe(false);
   });
 });
 
@@ -76,6 +80,38 @@ describe("memory report store", () => {
     const created = await store.create({ id: "draft-1", title: "指定 id" });
     expect(created.id).toBe("draft-1");
     await expect(store.create({ id: "draft-1" })).rejects.toThrow(/already exists/i);
+  });
+
+  it("keeps report text when a slot image is stored and removes images with the report", async () => {
+    const store = createMemoryReportStore();
+    const created = await store.create({
+      title: "周报",
+      projects: [{ id: "p1", name: "设备", bullets: ["联调"] }],
+    });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]);
+    const image = await store.putImage(created.id, {
+      slot: "cover-1",
+      mime: "image/png",
+      filename: "a.png",
+      bytes: png,
+    });
+    const again = await store.get(created.id);
+    expect(again?.title).toBe("周报");
+    expect(again?.updatedAt).toBe(created.updatedAt);
+    expect(again?.projects).toEqual(created.projects);
+    expect(again && "images" in again).toBe(false);
+    const read = await store.readImage(created.id, image.id);
+    expect(read?.bytes.equals(png)).toBe(true);
+    const replaced = await store.putImage(created.id, {
+      slot: "cover-1",
+      mime: "image/png",
+      filename: "b.png",
+      bytes: png,
+    });
+    expect(replaced.id).not.toBe(image.id);
+    expect(await store.listImages(created.id)).toHaveLength(1);
+    await store.delete(created.id);
+    expect(await store.readImage(created.id, replaced.id)).toBeNull();
   });
 });
 

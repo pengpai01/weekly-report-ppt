@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader, Stepper } from "../components/AppHeader";
 import { AiSummarizeControl } from "../components/AiSummarizeControl";
+import { CoverImageSlots } from "../components/CoverImageSlots";
 import { ReportGate } from "../components/ReportGate";
 import { ZoneMergePanel } from "../components/ZoneMergePanel";
 import { generateSlides, duplicateProjectNames } from "../lib/generateSlides";
@@ -127,6 +128,12 @@ function MaterialsForm({ report }: { report: Report }) {
                 nextWeek: next.nextWeek,
               }))
             }
+          />
+
+          <CoverImageSlots
+            reportId={report.id}
+            images={report.images ?? []}
+            onImages={(images) => update((current) => ({ ...current, images }))}
           />
 
           <div className="footer-bar">

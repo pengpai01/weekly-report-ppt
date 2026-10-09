@@ -72,7 +72,9 @@ export async function startServer(options = {}) {
   return new Promise((resolvePromise) => {
     server.listen(port, host, () => {
       const shownHost = host === "0.0.0.0" ? "localhost" : host;
+      const imageAccess = process.env.REPORT_API_TOKEN?.trim() ? "loopback-or-token" : "loopback-only";
       console.log(`[${SERVICE_NAME}] listening on http://${shownHost}:${port}`);
+      console.log(`Image and spreadsheet upload: ${imageAccess} (REPORT_API_TOKEN stays in server env)`);
       console.log(`DeepSeek: ${deepseek} (DEEPSEEK_API_KEY, server env only)`);
       console.log(`MySQL: ${mysql.user}@${mysql.host}:${mysql.port}/${mysql.database} (table ${REPORTS_TABLE} only)`);
       console.log(`Local files (logs): ${dataDir}`);

@@ -24,6 +24,14 @@ export function normalizeReport(
   existing?: StoredReport,
 ): StoredReport;
 
+export type StoredImage = {
+  id: string;
+  slot: string;
+  mime: string;
+  filename: string;
+  byteLength: number;
+};
+
 export type ReportStore = {
   dataDir: string;
   list(): Promise<StoredReport[]>;
@@ -34,6 +42,16 @@ export type ReportStore = {
     input?: Partial<StoredReport> & Record<string, unknown>,
   ): Promise<StoredReport>;
   delete(id: string): Promise<void>;
+  listImages(reportId: string): Promise<StoredImage[]>;
+  putImage(
+    reportId: string,
+    image: { slot: string; mime: string; filename: string; bytes: Buffer },
+  ): Promise<StoredImage>;
+  readImage(
+    reportId: string,
+    imageId: string,
+  ): Promise<(StoredImage & { bytes: Buffer }) | null>;
+  deleteImage(reportId: string, imageId: string): Promise<boolean>;
   close(): Promise<void>;
 };
 

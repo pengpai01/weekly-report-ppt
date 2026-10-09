@@ -1,6 +1,6 @@
 import type { AiScope } from "./aiSummarize";
 import type { ZoneSnapshot } from "./zoneMerge";
-import type { Report, YunxiaoWorkItemList } from "../types";
+import type { Report, ReportImage, YunxiaoWorkItemList } from "../types";
 
 type ApiError = Error & { status?: number; code?: string };
 
@@ -253,6 +253,23 @@ export function deleteReportOnServer(id: string) {
   return request<void>(`/api/reports/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export function uploadReportImage(reportId: string, slot: string, file: File) {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const query = new URLSearchParams({ slot });
+  return request<{ image: ReportImage; images: ReportImage[] }>(
+    `/api/reports/${encodeURIComponent(reportId)}/images?${query}`,
+    { method: "POST", body: form },
+  );
+}
+
+export function deleteReportImage(reportId: string, imageId: string) {
+  return request<{ images: ReportImage[] }>(
+    `/api/reports/${encodeURIComponent(reportId)}/images/${encodeURIComponent(imageId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export type AiSummaryResponse = {

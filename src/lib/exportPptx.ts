@@ -8,6 +8,7 @@
  */
 import JSZip from "jszip";
 import templateUrl from "../../templates/week-summary-template.pptx?url";
+import { COVER_IMAGE_SLOTS, extensionForMime, fetchSlotImages, type SlotImageBytes } from "./reportImages";
 import { parseFilledSlides, type FilledSlide } from "./templateSlides";
 import type {
   ClosingPayload,
@@ -306,12 +307,55 @@ function loadOfficialTemplate(): Promise<ArrayBuffer> {
   return templateBytesPromise;
 }
 
+function retargetImageRel(relsXml: string, relId: string, target: string): string {
+  return relsXml.replace(/<Relationship\b[^>]*\/>/g, (tag) => {
+    if (!new RegExp(`\\bId="${relId}"`).test(tag)) return tag;
+    if (!tag.includes("/image")) return tag;
+    return tag.replace(/Target="[^"]*"/, `Target="${target}"`);
+  });
+}
+
+function ensureContentDefault(contentTypes: string, ext: string, mime: string): string {
+  if (new RegExp(`Extension="${ext}"`).test(contentTypes)) return contentTypes;
+  return contentTypes.replace(
+    "</Types>",
+    `<Default Extension="${ext}" ContentType="${mime}"/></Types>`,
+  );
+}
+
+/** Replace cover/closing mosaic relationships. Empty slots keep the template media. */
+async function applyCoverSlotImages(zip: JSZip, images?: SlotImageBytes[]): Promise<void> {
+  if (!images?.length) return;
+  let contentTypes = await readXml(zip, "[Content_Types].xml");
+  const replacements: { relId: string; target: string }[] = [];
+  for (const image of images) {
+    const slot = COVER_IMAGE_SLOTS.find((item) => item.id === image.slot);
+    if (!slot || !image.bytes?.byteLength) continue;
+    const ext = extensionForMime(image.mime);
+    const fileName = `image-slot-${slot.id}.${ext}`;
+    zip.file(`ppt/media/${fileName}`, image.bytes);
+    contentTypes = ensureContentDefault(contentTypes, ext, image.mime);
+    replacements.push({ relId: slot.relId, target: `../media/${fileName}` });
+  }
+  if (!replacements.length) return;
+  for (const slide of ["slide1.xml", "slide3.xml"]) {
+    const relPath = `ppt/slides/_rels/${slide}.rels`;
+    const relFile = zip.file(relPath);
+    if (!relFile) continue;
+    let rels = await relFile.async("string");
+    for (const item of replacements) rels = retargetImageRel(rels, item.relId, item.target);
+    zip.file(relPath, rels);
+  }
+  zip.file("[Content_Types].xml", contentTypes);
+}
+
 /** Preview and download both use this. `slides` is parsed from the bytes that get saved. */
 export async function fillOfficialTemplate(
   report: Report,
   template?: ArrayBuffer | Uint8Array,
+  images?: SlotImageBytes[],
 ): Promise<{ bytes: Uint8Array; slides: FilledSlide[] }> {
-  const bytes = await buildPptxBytes(report, template ?? (await loadOfficialTemplate()));
+  const bytes = await buildPptxBytes(report, template ?? (await loadOfficialTemplate()), images);
   const slides = await parseFilledSlides(bytes);
   return { bytes, slides };
 }
@@ -319,6 +363,7 @@ export async function fillOfficialTemplate(
 export async function buildPptxBytes(
   report: Report,
   template: ArrayBuffer | Uint8Array,
+  images?: SlotImageBytes[],
 ): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(template);
   await scrubZip(zip);
@@ -465,12 +510,14 @@ export async function buildPptxBytes(
   zip.file("[Content_Types].xml", contentTypes);
   zip.file("ppt/presentation.xml", presentation);
   zip.file("docProps/core.xml", core);
+  await applyCoverSlotImages(zip, images);
 
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
 
-export async function downloadPptx(report: Report): Promise<string> {
-  const { bytes } = await fillOfficialTemplate(report);
+export async function downloadPptx(report: Report, images?: SlotImageBytes[]): Promise<string> {
+  const packed = images ?? (await fetchSlotImages(report));
+  const { bytes } = await fillOfficialTemplate(report, undefined, packed);
   const fileName = exportFileName(report);
   const copy = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(copy).set(bytes);

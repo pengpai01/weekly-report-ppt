@@ -85,7 +85,14 @@ function themeColors(xml: string): Record<string, string> {
 }
 
 function dataUrl(bytes: Uint8Array, path: string): string {
-  const mime = path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+  const lower = path.toLowerCase();
+  const mime = lower.endsWith(".png")
+    ? "image/png"
+    : lower.endsWith(".gif")
+      ? "image/gif"
+      : lower.endsWith(".webp")
+        ? "image/webp"
+        : "image/jpeg";
   let binary = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {

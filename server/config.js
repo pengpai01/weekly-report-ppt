@@ -14,6 +14,7 @@ export const TABLE_PREFIX = "wr_";
 export const REPORTS_TABLE = "wr_reports";
 export const YUNXIAO_ITEMS_TABLE = "wr_yunxiao_items";
 export const INGEST_RAW_TABLE = "wr_ingest_raw";
+export const REPORT_IMAGES_TABLE = "wr_report_images";
 /** Official Yunxiao OpenAPI host (PAT via x-yunxiao-token). */
 export const YUNXIAO_OPENAPI_BASE = "https://openapi-rdc.aliyuncs.com";
 export const DEFAULT_YUNXIAO_PROJECT_NAME = "DNK-设备软件";

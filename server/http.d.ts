@@ -13,6 +13,8 @@ export type ApiRouteDeps = {
   aiFetch?: typeof fetch;
   aiTimeoutMs?: number;
   aiLog?: (entry: { code?: string; upstreamStatus?: number }) => void;
+  /** Server env for upload/image access. Defaults to process.env. Never send tokens to the browser. */
+  accessEnv?: NodeJS.Dict<string>;
 };
 
 export function routeApi(

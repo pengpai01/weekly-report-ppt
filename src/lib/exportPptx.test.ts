@@ -6,6 +6,7 @@ import JSZip from "jszip";
 import { createReport } from "./report";
 import { generateSlides } from "./generateSlides";
 import { buildPptxBytes, exportFileName, fillOfficialTemplate } from "./exportPptx";
+import { COVER_IMAGE_SLOTS } from "./reportImages";
 import { SAMPLE_REPORT_SEED } from "./sampleData";
 import { createId } from "./format";
 import { MAX_BULLETS_PER_PAGE } from "../types";
@@ -285,5 +286,57 @@ describe("pptx export", () => {
     const left = /idx="1"[\s\S]{0,2500}?<a:off x="(\d+)" y="(\d+)"\/>/.exec(layout);
     expect(left).toBeTruthy();
     expect(Math.abs((bullet?.x ?? 0) - (Number(left?.[1]) * 1280) / cx)).toBeLessThan(1);
+  });
+
+  it("fills cover mosaic slots and leaves template art, ads, and geometry alone", async () => {
+    const report = sampleReport();
+    const template = templateBytes();
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const slot = COVER_IMAGE_SLOTS[0];
+    const { bytes, slides } = await fillOfficialTemplate(report, template, [
+      { slot: slot.id, mime: "image/png", bytes: png },
+    ]);
+    const zip = await JSZip.loadAsync(bytes);
+    const templateZip = await JSZip.loadAsync(template);
+    const cover = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const templateCover = await templateZip.file("ppt/slides/slide1.xml")!.async("string");
+    const box = (xml: string) => {
+      const shape = (xml.match(/<p:sp\b[^>]*>[\s\S]*?<\/p:sp>/g) ?? []).find((part) =>
+        part.includes(`id="${slot.shapeId}"`),
+      );
+      const off = /<a:off x="(-?\d+)" y="(-?\d+)"\/>/.exec(shape ?? "");
+      const ext = /<a:ext cx="(-?\d+)" cy="(-?\d+)"\/>/.exec(shape ?? "");
+      return `${off?.[1]},${off?.[2]},${ext?.[1]},${ext?.[2]}`;
+    };
+    expect(box(cover)).toBe(box(templateCover));
+
+    const coverRels = await zip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    const closingRels = await zip.file("ppt/slides/_rels/slide3.xml.rels")!.async("string");
+    expect(coverRels).toContain(`Id="${slot.relId}"`);
+    expect(coverRels).toContain(`../media/image-slot-${slot.id}.png`);
+    expect(closingRels).toContain(`../media/image-slot-${slot.id}.png`);
+    expect(coverRels).toContain("../media/image1.png");
+    expect(coverRels).toContain('Id="rId4"');
+    expect(coverRels).toMatch(/Id="rId4"[^>]*Target="\.\.\/media\/image3\.jpeg"/);
+
+    const media = await zip.file(`ppt/media/image-slot-${slot.id}.png`)!.async("uint8array");
+    expect(Buffer.from(media).equals(png)).toBe(true);
+    const original = await templateZip.file("ppt/media/image2.jpeg")!.async("uint8array");
+    const kept = await zip.file("ppt/media/image2.jpeg")!.async("uint8array");
+    expect(Buffer.from(kept).equals(Buffer.from(original))).toBe(true);
+
+    const b64 = png.toString("base64");
+    expect(slides[0].shapes.some((shape) => shape.src?.includes(b64))).toBe(true);
+    expect(slides.at(-1)?.shapes.some((shape) => shape.src?.includes(b64))).toBe(true);
+
+    for (const name of Object.keys(zip.files)) {
+      if (!/\.(xml|rels)$/i.test(name)) continue;
+      const text = await zip.file(name)!.async("string");
+      expect(text.toLowerCase()).not.toContain("1ppt");
+      expect(text).not.toContain("第一PPT");
+    }
   });
 });
