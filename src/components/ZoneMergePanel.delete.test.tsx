@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import type { ZoneSnapshot } from "../lib/zoneMerge";
-import { ZoneMergePanel } from "./ZoneMergePanel";
+import { itemDeleteConfirmCopy, ZoneMergePanel } from "./ZoneMergePanel";
 
 function Host({ initial }: { initial: ZoneSnapshot }) {
   const [value, setValue] = useState(initial);
@@ -183,17 +183,70 @@ describe("project delete undo", () => {
     expect(bulletValues).not.toContain("联调");
   });
 
-  it("removes one child entry from the menu without enabling merge undo", async () => {
+  it("confirms one child entry from the menu and leaves merge undo disabled", async () => {
     await mount(sample());
     await act(async () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
-    const row = projectCard("设备管理").querySelectorAll(".bullet-row")[0] as HTMLElement;
-    expect(row.querySelector(":scope > button")).toBeNull();
-    await clickButton("删除要点", row);
+    const row = () => projectCard("设备管理").querySelectorAll(".bullet-row")[0] as HTMLElement;
+    expect(row().querySelector(":scope > button")).toBeNull();
+
+    await clickButton("删除要点", row());
+    expect(document.querySelector('[aria-label="确认删除要点"]')?.textContent).toContain("仅删除这一条要点");
+    expect(document.querySelector('[aria-label="确认删除要点"]')?.textContent).toContain("不会删除整个项目");
+    expect(document.body.textContent).not.toContain("同时删除其下全部要点条目");
+    expect(projectCard("设备管理").textContent).toContain("联调");
+    expect(buttons("撤销本次合并")[0].disabled).toBe(true);
+
+    await clickButton("取消");
+    expect(document.querySelector('[aria-label="确认删除要点"]')).toBeNull();
+    expect(projectCard("设备管理").textContent).toContain("联调");
+    expect(projectCard("设备管理").textContent).toContain("上线");
+
+    await clickButton("删除要点", row());
+    await clickButton("确定删除");
     expect(projectCard("设备管理").textContent).not.toContain("联调");
     expect(projectCard("设备管理").textContent).toContain("上线");
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
     expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
+
+    const issue = document.querySelector('input[aria-label="问题标题 1"]')!.closest("article")!;
+    await clickButton("删除", issue);
+    expect(document.querySelector('[aria-label="确认删除问题"]')?.textContent).toContain("不会删除整个项目");
+    expect(issue.textContent).toContain("登录失败");
+    await clickButton("取消");
+    expect(issue.textContent).toContain("登录失败");
+    await clickButton("删除", issue);
+    await clickButton("确定删除");
+    expect(document.body.textContent).not.toContain("登录失败");
+
+    const plan = document.querySelector('input[placeholder="项目"]')!.closest("article")!;
+    await clickButton("删除", plan);
+    expect(document.querySelector('[aria-label="确认删除下周计划"]')?.textContent).toContain("仅删除这一行");
+    expect(document.querySelector('[aria-label="确认删除下周计划"]')?.textContent).toContain("不会删除整个项目");
+    expect((document.querySelector('textarea[placeholder="工作内容（每行一条）"]') as HTMLTextAreaElement).value).toBe("压测");
+    await clickButton("取消");
+    expect(document.querySelector('input[placeholder="项目"]')).not.toBeNull();
+    await clickButton("删除", plan);
+    await clickButton("确定删除");
+    expect(document.querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("压测");
+    expect(buttons("撤销本次合并")[0].disabled).toBe(true);
+    expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
+  });
+});
+
+describe("item delete confirm copy", () => {
+  it("names the single row and says the project stays", () => {
+    expect(itemDeleteConfirmCopy("bullet", " 联调 ")).toBe("确定删除要点「联调」？仅删除这一条要点，不会删除整个项目。");
+    expect(itemDeleteConfirmCopy("issue", "登录失败")).toBe(
+      "确定删除问题或建议「登录失败」？仅删除这一条，不会删除整个项目。",
+    );
+    expect(itemDeleteConfirmCopy("nextWeek", "设备管理")).toBe(
+      "确定删除下周计划「设备管理」？仅删除这一行，不会删除整个项目。",
+    );
+    expect(itemDeleteConfirmCopy("bullet", "")).toBe("确定删除要点？仅删除这一条要点，不会删除整个项目。");
+    expect(itemDeleteConfirmCopy("bullet", "联调")).not.toContain("全部要点");
+    expect(itemDeleteConfirmCopy("bullet", "联调")).not.toContain("撤销本次合并");
   });
 });
