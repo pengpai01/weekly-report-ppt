@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { newIssue, newPlanRow, newProject } from "../lib/importZones";
 import {
   EMPTY_SELECTION,
@@ -20,6 +20,25 @@ export function projectDeleteConfirmCopy(name: string): string {
   const displayName = name.trim() || "未命名项目";
   return `确定删除项目「${displayName}」？删除该项目会同时删除其下全部要点条目。可使用上方「撤销本次合并」恢复整个项目及其全部条目。`;
 }
+
+/** Second confirm for one child row. Item deletes stay off the merge undo stack. */
+export function itemDeleteConfirmCopy(kind: "bullet" | "issue" | "nextWeek", label: string): string {
+  const display = label.trim().replace(/\s+/g, " ");
+  const short = display.length > 40 ? `${display.slice(0, 40)}…` : display;
+  const quoted = short ? `「${short}」` : "";
+  if (kind === "bullet") {
+    return `确定删除要点${quoted}？仅删除这一条要点，不会删除整个项目。`;
+  }
+  if (kind === "issue") {
+    return `确定删除问题或建议${quoted}？仅删除这一条，不会删除整个项目。`;
+  }
+  return `确定删除下周计划${quoted}？仅删除这一行，不会删除整个项目。`;
+}
+
+type PendingItemDelete =
+  | { kind: "bullet"; projectId: string; index: number }
+  | { kind: "issue"; id: string }
+  | { kind: "nextWeek"; id: string };
 
 /**
  * Remove one project from the snapshot.
@@ -82,6 +101,7 @@ export function ZoneMergePanel({
   const [undo, setUndo] = useState<ZoneSnapshot[]>([]);
   const [error, setError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingItemDelete, setPendingItemDelete] = useState<PendingItemDelete | null>(null);
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -90,6 +110,7 @@ export function ZoneMergePanel({
     setUndo([]);
     setError("");
     setPendingDeleteId(null);
+    setPendingItemDelete(null);
     setOpenProjectIds(new Set());
   }, [resetKey]);
 
@@ -153,6 +174,38 @@ export function ZoneMergePanel({
     setPendingDeleteId(null);
     setError("");
     onChange(next.value);
+  };
+
+  const commitItemDelete = () => {
+    const pending = pendingItemDelete;
+    setPendingItemDelete(null);
+    if (!pending) return;
+    if (pending.kind === "bullet") {
+      const project = value.projects.find((item) => item.id === pending.projectId);
+      if (!project || pending.index < 0 || pending.index >= project.bullets.length) return;
+      onChange({
+        ...value,
+        projects: value.projects.map((item) =>
+          item.id === pending.projectId
+            ? clearLineMeta({
+                ...item,
+                bullets: item.bullets.filter((_, lineIndex) => lineIndex !== pending.index),
+              })
+            : item,
+        ),
+      });
+      return;
+    }
+    if (pending.kind === "issue") {
+      if (!value.issues.items.some((row) => row.id === pending.id)) return;
+      onChange({
+        ...value,
+        issues: { ...value.issues, items: value.issues.items.filter((row) => row.id !== pending.id) },
+      });
+      return;
+    }
+    if (!value.nextWeek.some((item) => item.id === pending.id)) return;
+    onChange({ ...value, nextWeek: value.nextWeek.filter((item) => item.id !== pending.id) });
   };
 
   const zoneName = selection.zone ? ZONE_LABEL[selection.zone] : "";
@@ -297,52 +350,56 @@ export function ZoneMergePanel({
                       </div>
                     </div>
                   ) : null}
-                  {open ? project.bullets.map((bullet, bulletIndex) => (
-                    <div className="bullet-row" key={`${project.id}-${bulletIndex}`}>
-                      <textarea
-                        className="text-input"
-                        placeholder={`进展要点 ${bulletIndex + 1}`}
-                        value={bullet}
-                        onChange={(event) =>
-                          onChange({
-                            ...value,
-                            projects: value.projects.map((item) =>
-                              item.id === project.id
-                                ? clearLineMeta({
-                                    ...item,
-                                    bullets: item.bullets.map((line, lineIndex) =>
-                                      lineIndex === bulletIndex ? event.target.value : line,
-                                    ),
-                                  })
-                                : item,
-                            ),
-                          })
-                        }
-                      />
-                      <RowMenu label={`更多 要点 ${bulletIndex + 1}`}>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="row-menu-item"
-                          onClick={() =>
-                            onChange({
-                              ...value,
-                              projects: value.projects.map((item) =>
-                                item.id === project.id
-                                  ? clearLineMeta({
-                                      ...item,
-                                      bullets: item.bullets.filter((_, lineIndex) => lineIndex !== bulletIndex),
-                                    })
-                                  : item,
-                              ),
-                            })
-                          }
-                        >
-                          删除要点
-                        </button>
-                      </RowMenu>
-                    </div>
-                  )) : null}
+                  {open
+                    ? project.bullets.map((bullet, bulletIndex) => (
+                        <Fragment key={`${project.id}-${bulletIndex}`}>
+                          <div className="bullet-row">
+                            <textarea
+                              className="text-input"
+                              placeholder={`进展要点 ${bulletIndex + 1}`}
+                              value={bullet}
+                              onChange={(event) =>
+                                onChange({
+                                  ...value,
+                                  projects: value.projects.map((item) =>
+                                    item.id === project.id
+                                      ? clearLineMeta({
+                                          ...item,
+                                          bullets: item.bullets.map((line, lineIndex) =>
+                                            lineIndex === bulletIndex ? event.target.value : line,
+                                          ),
+                                        })
+                                      : item,
+                                  ),
+                                })
+                              }
+                            />
+                            <RowMenu label={`更多 要点 ${bulletIndex + 1}`}>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="row-menu-item"
+                                onClick={() =>
+                                  setPendingItemDelete({ kind: "bullet", projectId: project.id, index: bulletIndex })
+                                }
+                              >
+                                删除要点
+                              </button>
+                            </RowMenu>
+                          </div>
+                          {pendingItemDelete?.kind === "bullet" &&
+                          pendingItemDelete.projectId === project.id &&
+                          pendingItemDelete.index === bulletIndex ? (
+                            <ItemDeleteConfirm
+                              label="确认删除要点"
+                              copy={itemDeleteConfirmCopy("bullet", bullet)}
+                              onCancel={() => setPendingItemDelete(null)}
+                              onConfirm={commitItemDelete}
+                            />
+                          ) : null}
+                        </Fragment>
+                      ))
+                    : null}
                   {open ? (
                     <button
                       className="btn btn-ghost btn-sm"
@@ -458,17 +515,20 @@ export function ZoneMergePanel({
                       type="button"
                       role="menuitem"
                       className="row-menu-item"
-                      onClick={() =>
-                        onChange({
-                          ...value,
-                          issues: { ...value.issues, items: value.issues.items.filter((row) => row.id !== item.id) },
-                        })
-                      }
+                      onClick={() => setPendingItemDelete({ kind: "issue", id: item.id })}
                     >
                       删除
                     </button>
                   </RowMenu>
                 </div>
+                {pendingItemDelete?.kind === "issue" && pendingItemDelete.id === item.id ? (
+                  <ItemDeleteConfirm
+                    label="确认删除问题"
+                    copy={itemDeleteConfirmCopy("issue", item.title?.trim() || item.text)}
+                    onCancel={() => setPendingItemDelete(null)}
+                    onConfirm={commitItemDelete}
+                  />
+                ) : null}
                 </div>
               </article>
             ))}
@@ -533,12 +593,20 @@ export function ZoneMergePanel({
                         type="button"
                         role="menuitem"
                         className="row-menu-item"
-                        onClick={() => onChange({ ...value, nextWeek: value.nextWeek.filter((item) => item.id !== row.id) })}
+                        onClick={() => setPendingItemDelete({ kind: "nextWeek", id: row.id })}
                       >
                         删除
                       </button>
                     </RowMenu>
                   </div>
+                  {pendingItemDelete?.kind === "nextWeek" && pendingItemDelete.id === row.id ? (
+                    <ItemDeleteConfirm
+                      label="确认删除下周计划"
+                      copy={itemDeleteConfirmCopy("nextWeek", row.projectName)}
+                      onCancel={() => setPendingItemDelete(null)}
+                      onConfirm={commitItemDelete}
+                    />
+                  ) : null}
                   <textarea
                     className="text-input"
                     placeholder="工作内容（每行一条）"
@@ -560,6 +628,32 @@ export function ZoneMergePanel({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function ItemDeleteConfirm({
+  label,
+  copy,
+  onCancel,
+  onConfirm,
+}: {
+  label: string;
+  copy: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="project-delete-confirm" role="alertdialog" aria-label={label}>
+      <p>{copy}</p>
+      <div className="inline-actions">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="btn btn-danger btn-sm" onClick={onConfirm}>
+          确定删除
+        </button>
+      </div>
     </div>
   );
 }
