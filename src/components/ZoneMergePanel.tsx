@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { newIssue, newPlanRow, newProject } from "../lib/importZones";
 import {
   EMPTY_SELECTION,
@@ -35,10 +35,16 @@ export function itemDeleteConfirmCopy(kind: "bullet" | "issue" | "nextWeek", lab
   return `确定删除下周计划${quoted}？仅删除这一行，不会删除整个项目。`;
 }
 
-type PendingItemDelete =
-  | { kind: "bullet"; projectId: string; index: number }
-  | { kind: "issue"; id: string }
-  | { kind: "nextWeek"; id: string };
+type PendingItemDelete = { kind: "issue"; id: string } | { kind: "nextWeek"; id: string };
+
+/** One line is one bullet. Blank lines are dropped. An empty field is `[]`. */
+export function bulletsFromLines(text: string): string[] {
+  return text.split(/\r?\n/).filter((line) => line.trim() !== "");
+}
+
+function sameBullets(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((line, index) => line === right[index]);
+}
 
 /**
  * Remove one project from the snapshot.
@@ -180,22 +186,6 @@ export function ZoneMergePanel({
     const pending = pendingItemDelete;
     setPendingItemDelete(null);
     if (!pending) return;
-    if (pending.kind === "bullet") {
-      const project = value.projects.find((item) => item.id === pending.projectId);
-      if (!project || pending.index < 0 || pending.index >= project.bullets.length) return;
-      onChange({
-        ...value,
-        projects: value.projects.map((item) =>
-          item.id === pending.projectId
-            ? clearLineMeta({
-                ...item,
-                bullets: item.bullets.filter((_, lineIndex) => lineIndex !== pending.index),
-              })
-            : item,
-        ),
-      });
-      return;
-    }
     if (pending.kind === "issue") {
       if (!value.issues.items.some((row) => row.id === pending.id)) return;
       onChange({
@@ -350,70 +340,19 @@ export function ZoneMergePanel({
                       </div>
                     </div>
                   ) : null}
-                  {open
-                    ? project.bullets.map((bullet, bulletIndex) => (
-                        <Fragment key={`${project.id}-${bulletIndex}`}>
-                          <div className="bullet-row">
-                            <textarea
-                              className="text-input"
-                              placeholder={`进展要点 ${bulletIndex + 1}`}
-                              value={bullet}
-                              onChange={(event) =>
-                                onChange({
-                                  ...value,
-                                  projects: value.projects.map((item) =>
-                                    item.id === project.id
-                                      ? clearLineMeta({
-                                          ...item,
-                                          bullets: item.bullets.map((line, lineIndex) =>
-                                            lineIndex === bulletIndex ? event.target.value : line,
-                                          ),
-                                        })
-                                      : item,
-                                  ),
-                                })
-                              }
-                            />
-                            <RowMenu label={`更多 要点 ${bulletIndex + 1}`}>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="row-menu-item"
-                                onClick={() =>
-                                  setPendingItemDelete({ kind: "bullet", projectId: project.id, index: bulletIndex })
-                                }
-                              >
-                                删除要点
-                              </button>
-                            </RowMenu>
-                          </div>
-                          {pendingItemDelete?.kind === "bullet" &&
-                          pendingItemDelete.projectId === project.id &&
-                          pendingItemDelete.index === bulletIndex ? (
-                            <ItemDeleteConfirm
-                              label="确认删除要点"
-                              copy={itemDeleteConfirmCopy("bullet", bullet)}
-                              onCancel={() => setPendingItemDelete(null)}
-                              onConfirm={commitItemDelete}
-                            />
-                          ) : null}
-                        </Fragment>
-                      ))
-                    : null}
                   {open ? (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
+                    <ProjectBulletsEditor
+                      label={`进展要点 ${displayName}`}
+                      bullets={project.bullets}
+                      onCommit={(bullets) =>
                         onChange({
                           ...value,
                           projects: value.projects.map((item) =>
-                            item.id === project.id ? clearLineMeta({ ...item, bullets: [...item.bullets, ""] }) : item,
+                            item.id === project.id ? clearLineMeta({ ...item, bullets }) : item,
                           ),
                         })
                       }
-                    >
-                      添加要点
-                    </button>
+                    />
                   ) : null}
                 </div>
               </article>
@@ -629,6 +568,37 @@ export function ZoneMergePanel({
         )}
       </section>
     </div>
+  );
+}
+
+function ProjectBulletsEditor({
+  label,
+  bullets,
+  onCommit,
+}: {
+  label: string;
+  bullets: string[];
+  onCommit: (next: string[]) => void;
+}) {
+  // Keeps a trailing newline while focused. The draft array drops blank lines.
+  const [raw, setRaw] = useState<string | null>(null);
+  const canonical = bullets.join("\n");
+  const value = raw !== null && sameBullets(bulletsFromLines(raw), bullets) ? raw : canonical;
+
+  return (
+    <textarea
+      className="text-input project-bullets-input"
+      aria-label={label}
+      placeholder="进展要点（每行一条）"
+      value={value}
+      onChange={(event) => {
+        const nextRaw = event.target.value;
+        const next = bulletsFromLines(nextRaw);
+        setRaw(nextRaw);
+        if (!sameBullets(next, bullets)) onCommit(next);
+      }}
+      onBlur={() => setRaw(null)}
+    />
   );
 }
 
