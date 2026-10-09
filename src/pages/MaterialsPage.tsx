@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader, Stepper } from "../components/AppHeader";
+import { AiSummarizeControl } from "../components/AiSummarizeControl";
 import { ReportGate } from "../components/ReportGate";
 import { ZoneMergePanel } from "../components/ZoneMergePanel";
 import { generateSlides, duplicateProjectNames } from "../lib/generateSlides";
@@ -93,6 +94,23 @@ function MaterialsForm({ report }: { report: Report }) {
               从文本一键拆分
             </button>
           </div>
+
+          <AiSummarizeControl
+            value={{
+              projects: report.projects,
+              issues: report.issues,
+              nextWeek: report.nextWeek,
+            }}
+            onApply={(next) => {
+              update((current) => ({
+                ...current,
+                projects: next.projects,
+                issues: next.issues,
+                nextWeek: next.nextWeek,
+              }));
+              setZoneEpoch((n) => n + 1);
+            }}
+          />
 
           <ZoneMergePanel
             resetKey={`${report.id}:${zoneEpoch}`}
