@@ -12,7 +12,7 @@ import {
   type ZoneSelection,
   type ZoneSnapshot,
 } from "../lib/zoneMerge";
-import type { ProjectStatus } from "../types";
+import type { Project, ProjectStatus } from "../types";
 import { PROJECT_STATUS_LABEL } from "../types";
 
 /** Second confirm: the project and every child entry go together. Undo is the merge bar. */
@@ -36,6 +36,42 @@ export function itemDeleteConfirmCopy(kind: "bullet" | "issue" | "nextWeek", lab
 }
 
 type PendingItemDelete = { kind: "issue"; id: string } | { kind: "nextWeek"; id: string };
+
+/** The one bullet whose row menu is open. Cleared after confirm, cancel, or when that row is gone. */
+type PendingBulletMove = { projectId: string; index: number };
+
+/**
+ * Move one bullet between projects already in `projects`.
+ * Splices it out of the source `bullets` list and inserts it at the end of the target `bullets` list.
+ * Does not create a project, and does not read or write 问题 / 下周.
+ * Same snapshot reference when the move cannot be applied.
+ */
+export function moveProjectBullet(
+  value: ZoneSnapshot,
+  sourceId: string,
+  bulletIndex: number,
+  targetId: string,
+): ZoneSnapshot {
+  if (!sourceId || !targetId || sourceId === targetId) return value;
+  const source = value.projects.find((item) => item.id === sourceId);
+  const target = value.projects.find((item) => item.id === targetId);
+  if (!source || !target) return value;
+  if (!Number.isInteger(bulletIndex) || bulletIndex < 0 || bulletIndex >= source.bullets.length) return value;
+  const sourceBullets = source.bullets.slice();
+  const [bullet] = sourceBullets.splice(bulletIndex, 1);
+  const targetBullets = target.bullets.slice();
+  targetBullets.splice(targetBullets.length, 0, bullet);
+  const projects = value.projects.map((item) => {
+    if (item.id === sourceId) return clearLineMeta({ ...item, bullets: sourceBullets });
+    if (item.id === targetId) return clearLineMeta({ ...item, bullets: targetBullets });
+    return item;
+  });
+  return { ...value, projects };
+}
+
+export function moveTargetProjects(projects: readonly Project[], sourceId: string): Project[] {
+  return projects.filter((item) => item.id !== sourceId);
+}
 
 /** One line is one bullet. Blank lines are dropped. An empty field is `[]`. */
 export function bulletsFromLines(text: string): string[] {
@@ -108,6 +144,7 @@ export function ZoneMergePanel({
   const [error, setError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingItemDelete, setPendingItemDelete] = useState<PendingItemDelete | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingBulletMove | null>(null);
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -117,6 +154,7 @@ export function ZoneMergePanel({
     setError("");
     setPendingDeleteId(null);
     setPendingItemDelete(null);
+    setPendingMove(null);
     setOpenProjectIds(new Set());
   }, [resetKey]);
 
@@ -125,6 +163,14 @@ export function ZoneMergePanel({
       setPendingDeleteId(null);
     }
   }, [pendingDeleteId, value.projects]);
+
+  useEffect(() => {
+    if (!pendingMove) return;
+    const source = value.projects.find((item) => item.id === pendingMove.projectId);
+    if (!source || pendingMove.index < 0 || pendingMove.index >= source.bullets.length) {
+      setPendingMove(null);
+    }
+  }, [pendingMove, value.projects]);
 
   const toggleProjectOpen = (id: string) => {
     setOpenProjectIds((current) => {
@@ -151,6 +197,7 @@ export function ZoneMergePanel({
       setUndo((stack) => [...stack, value]);
       setSelection(EMPTY_SELECTION);
       setPendingDeleteId(null);
+      setPendingMove(null);
       setError("");
       onChange(next);
     } catch (err) {
@@ -164,6 +211,7 @@ export function ZoneMergePanel({
     setUndo((stack) => stack.slice(0, -1));
     setSelection(EMPTY_SELECTION);
     setPendingDeleteId(null);
+    setPendingMove(null);
     setError("");
     onChange(previous);
   };
@@ -178,8 +226,18 @@ export function ZoneMergePanel({
     setSelection(next.selection);
     setOpenProjectIds(next.openProjectIds);
     setPendingDeleteId(null);
+    setPendingMove(null);
     setError("");
     onChange(next.value);
+  };
+
+  const commitBulletMove = (targetId: string) => {
+    const pending = pendingMove;
+    setPendingMove(null);
+    if (!pending) return;
+    const next = moveProjectBullet(value, pending.projectId, pending.index, targetId);
+    if (next === value) return;
+    onChange(next);
   };
 
   const commitItemDelete = () => {
@@ -354,6 +412,39 @@ export function ZoneMergePanel({
                       }
                     />
                   ) : null}
+                  {open
+                    ? project.bullets.map((bullet, bulletIndex) => {
+                        const moving =
+                          pendingMove?.projectId === project.id && pendingMove.index === bulletIndex;
+                        return (
+                          <div className="bullet-move-item" key={`${project.id}-bullet-${bulletIndex}`}>
+                            <div className={`bullet-move-row${moving ? " is-selected" : ""}`}>
+                              <span className="bullet-move-text" title={bullet}>
+                                {bullet.trim() ? bullet : "（空要点）"}
+                              </span>
+                              <RowMenu label={`更多 要点 ${displayName} ${bulletIndex + 1}`}>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="row-menu-item row-menu-item-neutral"
+                                  onClick={() => setPendingMove({ projectId: project.id, index: bulletIndex })}
+                                >
+                                  移到其他项目
+                                </button>
+                              </RowMenu>
+                            </div>
+                            {moving ? (
+                              <BulletMoveConfirm
+                                bullet={bullet}
+                                targets={moveTargetProjects(value.projects, project.id)}
+                                onCancel={() => setPendingMove(null)}
+                                onConfirm={commitBulletMove}
+                              />
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    : null}
                 </div>
               </article>
               );
@@ -599,6 +690,64 @@ function ProjectBulletsEditor({
       }}
       onBlur={() => setRaw(null)}
     />
+  );
+}
+
+function BulletMoveConfirm({
+  bullet,
+  targets,
+  onCancel,
+  onConfirm,
+}: {
+  bullet: string;
+  targets: readonly Project[];
+  onCancel: () => void;
+  onConfirm: (targetId: string) => void;
+}) {
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const display = bullet.trim().replace(/\s+/g, " ");
+  const short = display.length > 40 ? `${display.slice(0, 40)}…` : display;
+  const quoted = short ? `「${short}」` : "";
+  return (
+    <div className="project-move-confirm" role="dialog" aria-label="移到其他项目">
+      <p>确定将要点{quoted}移到所选项目？只移动这一条，不新建项目。</p>
+      {targets.length === 0 ? (
+        <p className="hint">当前页面没有其他项目。</p>
+      ) : (
+        <div className="project-move-targets" role="radiogroup" aria-label="目标项目">
+          {targets.map((project) => {
+            const name = project.name.trim() || "未命名项目";
+            return (
+              <label key={project.id}>
+                <input
+                  type="radio"
+                  name="bullet-move-target"
+                  value={project.id}
+                  checked={targetId === project.id}
+                  onChange={() => setTargetId(project.id)}
+                />
+                {name}
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <div className="inline-actions">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+          取消
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={targetId == null}
+          onClick={() => {
+            if (targetId) onConfirm(targetId);
+          }}
+        >
+          确定移动
+        </button>
+      </div>
+    </div>
   );
 }
 
