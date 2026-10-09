@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { newIssue, newPlanRow, newProject } from "../lib/importZones";
 import {
   EMPTY_SELECTION,
@@ -14,6 +14,36 @@ import {
 } from "../lib/zoneMerge";
 import type { ProjectStatus } from "../types";
 import { PROJECT_STATUS_LABEL } from "../types";
+
+/** Second confirm: the project and every child entry go together. Undo is the merge bar. */
+export function projectDeleteConfirmCopy(name: string): string {
+  const displayName = name.trim() || "未命名项目";
+  return `确定删除项目「${displayName}」？删除该项目会同时删除其下全部要点条目。可使用上方「撤销本次合并」恢复整个项目及其全部条目。`;
+}
+
+/**
+ * Remove one project from the snapshot.
+ * `projects: []` stays empty — callers must not insert a shell project.
+ * Only that project id leaves the selection and the collapse set.
+ */
+export function applyProjectDelete(
+  value: ZoneSnapshot,
+  selection: ZoneSelection,
+  openProjectIds: ReadonlySet<string>,
+  projectId: string,
+): { value: ZoneSnapshot; selection: ZoneSelection; openProjectIds: ReadonlySet<string> } {
+  const nextSelection =
+    selection.zone === "projects" && selection.ids.includes(projectId)
+      ? toggleSelection(selection, "projects", projectId).selection
+      : selection;
+  const nextOpen = new Set(openProjectIds);
+  nextOpen.delete(projectId);
+  return {
+    value: { ...value, projects: value.projects.filter((item) => item.id !== projectId) },
+    selection: nextSelection,
+    openProjectIds: nextOpen,
+  };
+}
 
 export function AutoMergeToggle({
   checked,
@@ -51,6 +81,7 @@ export function ZoneMergePanel({
   const [selection, setSelection] = useState<ZoneSelection>(EMPTY_SELECTION);
   const [undo, setUndo] = useState<ZoneSnapshot[]>([]);
   const [error, setError] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -58,8 +89,15 @@ export function ZoneMergePanel({
     setSelection(EMPTY_SELECTION);
     setUndo([]);
     setError("");
+    setPendingDeleteId(null);
     setOpenProjectIds(new Set());
   }, [resetKey]);
+
+  useEffect(() => {
+    if (pendingDeleteId && !value.projects.some((item) => item.id === pendingDeleteId)) {
+      setPendingDeleteId(null);
+    }
+  }, [pendingDeleteId, value.projects]);
 
   const toggleProjectOpen = (id: string) => {
     setOpenProjectIds((current) => {
@@ -85,6 +123,7 @@ export function ZoneMergePanel({
       const next = mergeZoneItems(value, selection.zone, selection.ids, selection.primaryId);
       setUndo((stack) => [...stack, value]);
       setSelection(EMPTY_SELECTION);
+      setPendingDeleteId(null);
       setError("");
       onChange(next);
     } catch (err) {
@@ -97,8 +136,23 @@ export function ZoneMergePanel({
     if (!previous) return;
     setUndo((stack) => stack.slice(0, -1));
     setSelection(EMPTY_SELECTION);
+    setPendingDeleteId(null);
     setError("");
     onChange(previous);
+  };
+
+  const commitProjectDelete = (projectId: string) => {
+    if (!value.projects.some((item) => item.id === projectId)) {
+      setPendingDeleteId(null);
+      return;
+    }
+    const next = applyProjectDelete(value, selection, openProjectIds, projectId);
+    setUndo((stack) => [...stack, value]);
+    setSelection(next.selection);
+    setOpenProjectIds(next.openProjectIds);
+    setPendingDeleteId(null);
+    setError("");
+    onChange(next.value);
   };
 
   const zoneName = selection.zone ? ZONE_LABEL[selection.zone] : "";
@@ -219,15 +273,30 @@ export function ZoneMergePanel({
                     >
                       {open ? "收起" : "展开"}
                     </button>
-                    {open ? (
+                    <RowMenu label={`更多 ${displayName}`}>
                       <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => onChange({ ...value, projects: value.projects.filter((item) => item.id !== project.id) })}
+                        type="button"
+                        role="menuitem"
+                        className="row-menu-item"
+                        onClick={() => setPendingDeleteId(project.id)}
                       >
-                        删除
+                        删除项目
                       </button>
-                    ) : null}
+                    </RowMenu>
                   </div>
+                  {pendingDeleteId === project.id ? (
+                    <div className="project-delete-confirm" role="alertdialog" aria-label="确认删除项目">
+                      <p>{projectDeleteConfirmCopy(project.name)}</p>
+                      <div className="inline-actions">
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPendingDeleteId(null)}>
+                          取消
+                        </button>
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => commitProjectDelete(project.id)}>
+                          确定删除
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {open ? project.bullets.map((bullet, bulletIndex) => (
                     <div className="bullet-row" key={`${project.id}-${bulletIndex}`}>
                       <textarea
@@ -250,24 +319,28 @@ export function ZoneMergePanel({
                           })
                         }
                       />
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() =>
-                          onChange({
-                            ...value,
-                            projects: value.projects.map((item) =>
-                              item.id === project.id
-                                ? clearLineMeta({
-                                    ...item,
-                                    bullets: item.bullets.filter((_, lineIndex) => lineIndex !== bulletIndex),
-                                  })
-                                : item,
-                            ),
-                          })
-                        }
-                      >
-                        删除
-                      </button>
+                      <RowMenu label={`更多 要点 ${bulletIndex + 1}`}>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="row-menu-item"
+                          onClick={() =>
+                            onChange({
+                              ...value,
+                              projects: value.projects.map((item) =>
+                                item.id === project.id
+                                  ? clearLineMeta({
+                                      ...item,
+                                      bullets: item.bullets.filter((_, lineIndex) => lineIndex !== bulletIndex),
+                                    })
+                                  : item,
+                              ),
+                            })
+                          }
+                        >
+                          删除要点
+                        </button>
+                      </RowMenu>
                     </div>
                   )) : null}
                   {open ? (
@@ -380,17 +453,21 @@ export function ZoneMergePanel({
                       })
                     }
                   />
-                  <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() =>
-                      onChange({
-                        ...value,
-                        issues: { ...value.issues, items: value.issues.items.filter((row) => row.id !== item.id) },
-                      })
-                    }
-                  >
-                    删除
-                  </button>
+                  <RowMenu label={`更多 问题 ${index + 1}`}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      onClick={() =>
+                        onChange({
+                          ...value,
+                          issues: { ...value.issues, items: value.issues.items.filter((row) => row.id !== item.id) },
+                        })
+                      }
+                    >
+                      删除
+                    </button>
+                  </RowMenu>
                 </div>
                 </div>
               </article>
@@ -451,12 +528,16 @@ export function ZoneMergePanel({
                         })
                       }
                     />
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => onChange({ ...value, nextWeek: value.nextWeek.filter((item) => item.id !== row.id) })}
-                    >
-                      删除
-                    </button>
+                    <RowMenu label={`更多 下周计划 ${row.projectName || index + 1}`}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="row-menu-item"
+                        onClick={() => onChange({ ...value, nextWeek: value.nextWeek.filter((item) => item.id !== row.id) })}
+                      >
+                        删除
+                      </button>
+                    </RowMenu>
                   </div>
                   <textarea
                     className="text-input"
@@ -480,6 +561,26 @@ export function ZoneMergePanel({
         )}
       </section>
     </div>
+  );
+}
+
+function RowMenu({ label, children }: { label: string; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  return (
+    <details className="row-menu" ref={ref}>
+      <summary className="btn btn-ghost btn-sm" aria-label={label}>
+        <span aria-hidden="true">⋯</span>
+      </summary>
+      <div
+        className="row-menu-pop"
+        role="menu"
+        onClick={() => {
+          ref.current?.removeAttribute("open");
+        }}
+      >
+        {children}
+      </div>
+    </details>
   );
 }
 
