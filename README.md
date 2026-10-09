@@ -53,6 +53,10 @@ npm start
 | `YUNXIAO_API_BASE_URL` | 可选，默认 `https://openapi-rdc.aliyuncs.com` |
 | `YUNXIAO_PROJECT_NAME` | 可选，默认 `DNK-设备软件` |
 | `YUNXIAO_SPACE_ID` | 可选，项目 spaceId。默认 `6230f5b04297236a20e79654d4`（DNK-设备软件 / CFRK） |
+| `DEEPSEEK_API_KEY` | 一键总结。只放服务端 `.env` 或部署密钥，**不要**写进前端、`VITE_*`、日志或仓库。未配置时接口返回 `ai.not_configured`，不改草稿 |
+| `DEEPSEEK_API_BASE_URL` | 可选，默认 `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 可选，默认 `deepseek-chat` |
+| `DEEPSEEK_TIMEOUT_MS` | 可选，默认 `20000` |
 
 浏览器 `localStorage` 只作缓存；刷新或同机其它浏览器访问同一服务时以 MySQL 为准。
 
@@ -117,6 +121,26 @@ curl -s -o NUL -w "%%{http_code}" -X POST http://localhost:5174/api/ingest/cance
 
 xlsx 同样用 `-F "file=@items.xlsx"`。确认后 `GET /api/reports/<id>` 应只有成功行；错误行只出现在预览和 `wr_ingest_raw`。取消后 `GET /api/reports` 不应多出草稿。重复确认同一 `previewId` 返回 404。
 
+### 素材页一键总结
+
+素材页按钮 **一键总结**。默认总结整页（重要事项、存在问题与建议、下周工作计划）的标题和要点，范围可选单个分区。服务端调用 DeepSeek 的 OpenAI 兼容接口 `POST {DEEPSEEK_API_BASE_URL}/chat/completions`（默认 `https://api.deepseek.com/chat/completions`，模型 `deepseek-chat`）。密钥只读 `DEEPSEEK_API_KEY`，请求体不接受密钥，日志只记 `code` 和上游状态码。
+
+`POST /api/ai/summarize` 只返回改写结果，**不写** `wr_reports`。浏览器先展示原文 / 总结对照。点「确认写入」才走现有的草稿保存；「撤销」或「取消」关掉预览，草稿保持原样。失败（未配置密钥、超时、限流、空结果、上游错误）只显示错误，不改原文。
+
+限制（服务端裁剪，确认前客户端再裁一次）：标题 ≤ 24 字，每条要点 ≤ 60 字，每个项目的进展要点 ≤ 5 条且不多于原文条数。不改导出字段含义：仍是项目 `name` / `bullets`、问题 `title` / `text`、下周 `projectName` / `items`。
+
+未配置密钥时返回 HTTP 503，正文例如：
+
+```json
+{"error":"未配置 DEEPSEEK_API_KEY。…原文未改动。","code":"ai.not_configured","status":"ai.not_configured"}
+```
+
+```bat
+curl -s -D - -X POST http://localhost:5174/api/ai/summarize -H "Content-Type: application/json" -d "{\"scope\":\"page\",\"materials\":{\"projects\":[{\"id\":\"p1\",\"name\":\"设备管理系统联调与性能压测\",\"bullets\":[\"完成协议联调并修复三个线上问题，补充监控告警与回归记录\"]}],\"issues\":{\"empty\":true,\"items\":[]},\"nextWeek\":[]}}"
+```
+
+无密钥时应看到 `ai.not_configured`。然后再 `GET /api/reports/<id>`，标题和要点与请求前一致。配置密钥并重启后，同一请求在成功时返回 200 和裁剪后的 `materials`，数据库仍要等页面里「确认写入」才会变。超时、429、空结果同样不改原文。
+
 ### 手动核对草稿持久化
 
 1. 新建周报，填写部门/日期并保存（下一步或预览里的「保存草稿」会立刻写入服务）。
@@ -147,8 +171,9 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 3. 在素材页可点 **载入样例数据**（7 个项目 + 8 行下周计划，对齐官方周总结模板），或自行按项目卡片填写。
 4. 问题页可勾选「本期无（生成 N/A）」；下周计划可「从重要事项带入项目名」。
 5. 素材页与导入预览共用同一套分区多选。在「重要事项 / 存在问题与建议 / 下周工作计划」内至少选 2 条后点「合并」。标题取较长正式名，长度相同则取「主项」（默认先勾选的一条）。正文按勾选顺序拼接，每行前加 `[状态·负责人]`（缺的部分省略），并保留每条 `sourceId`。导入确认前可「撤销本次合并」（只在浏览器里；撤回到原预览后确认请求不带 `materials`）。素材页合并后的内容走已有的 `PUT /api/reports/:id`。确认入库后不能再全局撤销。不能跨分区合并。
-6. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
-7. **导出 PPTX**，用 PowerPoint 或 WPS 打开。文件由 `templates/week-summary-template.pptx` 填字生成，封面和项目页版式跟官方模板一致，不含 1ppt.com 广告页。
+6. 素材页可点 **一键总结**（默认整页，也可选一个分区）。先看对照，确认后才写入标题和要点；取消或失败都不改原文。
+7. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。
+8. **导出 PPTX**，用 PowerPoint 或 WPS 打开。文件由 `templates/week-summary-template.pptx` 填字生成，封面和项目页版式跟官方模板一致，不含 1ppt.com 广告页。
 
 「从文本一键拆分」是规则启发式（识别 `一、项目` / `①②③`），拆分后需确认。项目卡片仍是主录入方式。
 
@@ -157,7 +182,7 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 - Vite + React 19 + TypeScript
 - 客户端用 JSZip 打开 `templates/week-summary-template.pptx` 填字后下载（pptxgenjs 不能打开已有 pptx）
 - 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`，上传审计表 `wr_ingest_raw`
-- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`
+- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`；一键总结 `POST /api/ai/summarize`（不落库，确认后仍走原来的草稿保存）
 
 ## 二期（本 MVP 明确不做）
 

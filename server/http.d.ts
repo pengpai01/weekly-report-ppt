@@ -8,6 +8,11 @@ export type ApiRouteDeps = {
   yunxiaoItems?: unknown;
   ingestStore?: unknown;
   previewStore?: unknown;
+  /** Server env for DeepSeek. Defaults to process.env. Never send this to the browser. */
+  aiEnv?: NodeJS.Dict<string>;
+  aiFetch?: typeof fetch;
+  aiTimeoutMs?: number;
+  aiLog?: (entry: { code?: string; upstreamStatus?: number }) => void;
 };
 
 export function routeApi(

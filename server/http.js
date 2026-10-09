@@ -1,3 +1,5 @@
+import { formatAiFailureLog, redactAiMessage, summarizeMaterials } from "./ai.js";
+import { appendServerLog } from "./config.js";
 import {
   cancelIngestPreview,
   confirmIngestPreview,
@@ -34,6 +36,10 @@ function send(res, status, body) {
 function sendNoContent(res) {
   res.writeHead(204, CORS);
   res.end();
+}
+
+function logAiFailure(entry) {
+  appendServerLog(formatAiFailureLog(entry));
 }
 
 function readBody(req) {
@@ -171,6 +177,22 @@ export async function routeApi(store, req, res, deps = {}) {
       return true;
     }
 
+    // Summarize only. This route must not call store.create / store.update.
+    if (pathname === "/api/ai/summarize") {
+      if (req.method !== "POST") {
+        send(res, 405, { error: "Method not allowed" });
+        return true;
+      }
+      const body = await parseJsonBody(req);
+      const result = await summarizeMaterials(body, {
+        env: deps.aiEnv ?? process.env,
+        fetch: deps.aiFetch ?? globalThis.fetch,
+        timeoutMs: deps.aiTimeoutMs,
+      });
+      send(res, 200, result);
+      return true;
+    }
+
     if (pathname === "/api/reports") {
       if (req.method === "GET") {
         send(res, 200, await store.list());
@@ -215,7 +237,21 @@ export async function routeApi(store, req, res, deps = {}) {
     return true;
   } catch (err) {
     const status = err.status || 500;
-    send(res, status, { error: err.message || "Server error" });
+    const aiCode = typeof err.code === "string" && err.code.startsWith("ai.") ? err.code : "";
+    if (aiCode) {
+      const log = deps.aiLog ?? logAiFailure;
+      log({ code: aiCode, upstreamStatus: err.upstreamStatus });
+    }
+    const payload = {
+      error: aiCode
+        ? redactAiMessage(err.message || "Server error", deps.aiEnv ?? process.env)
+        : err.message || "Server error",
+    };
+    if (aiCode) {
+      payload.code = aiCode;
+      payload.status = aiCode;
+    }
+    send(res, status, payload);
     return true;
   }
 }

@@ -1,6 +1,8 @@
+import type { AiScope } from "./aiSummarize";
+import type { ZoneSnapshot } from "./zoneMerge";
 import type { Report, YunxiaoWorkItemList } from "../types";
 
-type ApiError = Error & { status?: number };
+type ApiError = Error & { status?: number; code?: string };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -18,6 +20,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       typeof body?.error === "string" ? body.error : `请求失败（${res.status}）`;
     const error = new Error(message) as ApiError;
     error.status = res.status;
+    if (typeof body?.code === "string") error.code = body.code;
     throw error;
   }
   return body as T;
@@ -250,4 +253,37 @@ export function deleteReportOnServer(id: string) {
   return request<void>(`/api/reports/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export type AiSummaryResponse = {
+  scope: AiScope;
+  materials: ZoneSnapshot;
+};
+
+/** POST /api/ai/summarize. The browser sends materials only — never an API key. */
+export function requestAiSummary(materials: ZoneSnapshot, scope: AiScope = "page") {
+  return request<AiSummaryResponse>("/api/ai/summarize", {
+    method: "POST",
+    body: JSON.stringify({ scope, materials }),
+  });
+}
+
+export function aiErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.name === "AbortError") {
+    return "AI 总结超时，原文未改动。请稍后重试。";
+  }
+  if (err instanceof TypeError) {
+    return "无法连接本机服务，原文未改动。请确认服务已启动后再试。";
+  }
+  const code = err instanceof Error ? (err as ApiError).code : undefined;
+  const message = err instanceof Error ? err.message.trim() : "";
+  if (code === "ai.not_configured") {
+    return message || "未配置 DEEPSEEK_API_KEY。请在服务端 .env 填写后重启。原文未改动。";
+  }
+  if (code === "ai.timeout") return message || "AI 总结超时，原文未改动。请稍后重试。";
+  if (code === "ai.rate_limited") return message || "AI 总结请求过于频繁，原文未改动。请稍后再试。";
+  if (code === "ai.empty") return message || "AI 没有返回可用总结，原文未改动。";
+  if (code === "ai.upstream") return message || "AI 服务暂时不可用，原文未改动。";
+  if (message) return message;
+  return "AI 总结失败，原文未改动。";
 }

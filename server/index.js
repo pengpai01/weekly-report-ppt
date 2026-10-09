@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deepseekConfigured } from "./ai.js";
 import { appendServerLog, defaultDataDir, listenPort, mysqlConfigFromEnv, REPORTS_TABLE, SERVICE_NAME } from "./config.js";
 import { createReportStore } from "./store.js";
 import { routeApi } from "./http.js";
@@ -57,8 +58,9 @@ export async function startServer(options = {}) {
   const mysql = mysqlConfigFromEnv();
 
   await store.list();
+  const deepseek = deepseekConfigured() ? "configured" : "missing";
   appendServerLog(
-    `${SERVICE_NAME} listening host=${host} port=${port} mysql=${mysql.host}:${mysql.port}/${mysql.database} table=${REPORTS_TABLE}`,
+    `${SERVICE_NAME} listening host=${host} port=${port} mysql=${mysql.host}:${mysql.port}/${mysql.database} table=${REPORTS_TABLE} deepseek=${deepseek}`,
     dataDir,
   );
 
@@ -71,6 +73,7 @@ export async function startServer(options = {}) {
     server.listen(port, host, () => {
       const shownHost = host === "0.0.0.0" ? "localhost" : host;
       console.log(`[${SERVICE_NAME}] listening on http://${shownHost}:${port}`);
+      console.log(`DeepSeek: ${deepseek} (DEEPSEEK_API_KEY, server env only)`);
       console.log(`MySQL: ${mysql.user}@${mysql.host}:${mysql.port}/${mysql.database} (table ${REPORTS_TABLE} only)`);
       console.log(`Local files (logs): ${dataDir}`);
       resolvePromise(server);
