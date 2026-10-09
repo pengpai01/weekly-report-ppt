@@ -349,6 +349,53 @@ a { color: inherit; }
   resize: vertical;
   margin-bottom: 8px;
 }
+.bullet-move-item {
+  margin-bottom: 8px;
+}
+.bullet-move-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.bullet-move-row.is-selected .bullet-move-text {
+  font-weight: 600;
+}
+.bullet-move-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.row-menu-item-neutral {
+  color: var(--text);
+}
+.row-menu-item-neutral:hover {
+  background: var(--pale);
+}
+.project-move-confirm {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--pale);
+  font-size: 13px;
+}
+.project-move-confirm p {
+  margin: 0 0 8px;
+}
+.project-move-targets {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+.project-move-targets label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
 .plan-table { width: 100%; border-collapse: collapse; }
