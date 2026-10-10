@@ -340,12 +340,215 @@ describe("POST /api/ai/summarize", () => {
   });
 });
 
+describe("scoped project and item summarize", () => {
+  const packed = () => ({
+    projects: [
+      {
+        id: "p1",
+        name: "不应进模型的标题",
+        bullets: ["联调要点需要压缩"],
+        owner: "张三",
+        status: "in_progress",
+        sourceIds: ["s1"],
+      },
+      { id: "p2", name: "其他项目", bullets: ["其他项目要点不能出现"], owner: "赵六" },
+    ],
+    issues: {
+      empty: false,
+      items: [
+        { id: "i1", title: "【设备】登录失败", text: "【设备】账号锁定策略过严导致无法登录", owner: "李四" },
+        { id: "i2", title: "另一条", text: "另一条问题不能出现" },
+      ],
+    },
+    nextWeek: [
+      { id: "n1", projectName: "【形态学】下周", items: ["【形态学】补充监控并回归"], owner: "王五" },
+      { id: "n2", projectName: "其他计划", items: ["其他计划不能出现"] },
+    ],
+  });
+
+  it("rewrites one project's bullets and does not send the rest upstream", async () => {
+    let upstream = "";
+    const { base, store } = await startApi({
+      aiEnv: { DEEPSEEK_API_KEY: KEY },
+      aiFetch: async (_url: string, init: RequestInit) => {
+        upstream = String(init.body);
+        return chatResponse({
+          project: { id: "p1", name: `${KEY}改掉的标题`, bullets: [`${KEY}${"要".repeat(80)}`, "第二条", "第三条", "第四条", "第五条", "第六条"] },
+          projects: [{ id: "p2", name: "不该写", bullets: ["不该写"] }],
+          issues: [{ id: "i1", text: "不该写问题" }],
+          nextWeek: [{ id: "n1", items: ["不该写计划"] }],
+        });
+      },
+    });
+    const created = await store.create({
+      title: "周工作总结",
+      department: "软件研发",
+      templateType: "weekly",
+      ...packed(),
+    });
+    const original = packed();
+    const res = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "project", projectId: "p1", materials: original, apiKey: BODY_KEY }),
+    });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.scope).toBe("project");
+    expect(body.materials.projects[0].name).toBe("不应进模型的标题");
+    expect(body.materials.projects[0].bullets).toEqual(["要".repeat(AI_BULLET_MAX)]);
+    expect(body.materials.projects[0].status).toBe("in_progress");
+    expect(body.materials.projects[0].sourceIds).toEqual(["s1"]);
+    expect(body.materials.projects[0].owner).toBeUndefined();
+    expect(body.materials.projects[1]).toEqual(original.projects[1]);
+    expect(body.materials.issues).toEqual(original.issues);
+    expect(body.materials.nextWeek).toEqual(original.nextWeek);
+    expect(JSON.stringify(body)).not.toContain(KEY);
+    const user = JSON.parse(JSON.parse(upstream).messages[1].content);
+    expect(user.project).toEqual({ id: "p1", bullets: ["联调要点需要压缩"] });
+    expect(user.projects).toBeUndefined();
+    expect(user.issues).toBeUndefined();
+    expect(user.nextWeek).toBeUndefined();
+    expect(upstream).not.toContain("不应进模型的标题");
+    expect(upstream).not.toContain("其他项目要点不能出现");
+    expect(upstream).not.toContain("另一条问题不能出现");
+    expect(upstream).not.toContain("其他计划不能出现");
+    expect(upstream).not.toContain(KEY);
+    expect(upstream).not.toContain(BODY_KEY);
+    expect(original).toEqual(packed());
+    expect(await store.get(created.id)).toEqual(created);
+  });
+
+  it("rewrites one issue body and one next-week row without touching projects", async () => {
+    const seen: string[] = [];
+    const { base } = await startApi({
+      aiEnv: { DEEPSEEK_API_KEY: KEY },
+      aiFetch: async (_url: string, init: RequestInit) => {
+        const user = JSON.parse(JSON.parse(String(init.body)).messages[1].content) as {
+          scope?: string;
+          issue?: unknown;
+          nextWeekItem?: unknown;
+          project?: unknown;
+        };
+        seen.push(JSON.stringify(user));
+        if (user.scope === "issueItem") {
+          expect(user.project).toBeUndefined();
+          expect(user.nextWeekItem).toBeUndefined();
+          return chatResponse({
+            issue: { id: "i1", title: "不该改标题", text: `${KEY}【设备】账号被锁定` },
+          });
+        }
+        expect(user.scope).toBe("nextWeekItem");
+        expect(user.project).toBeUndefined();
+        expect(user.issue).toBeUndefined();
+        return chatResponse({
+          nextWeekItem: { id: "n1", projectName: "不该改名", items: ["【形态学】完成压测", "多出来的一条"] },
+        });
+      },
+    });
+    const materials = packed();
+    const issueRes = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "issueItem", itemId: "i1", materials }),
+    });
+    const issueBody = await issueRes.json();
+    expect(issueRes.status).toBe(200);
+    expect(issueBody.materials.issues.items[0].title).toBe("【设备】登录失败");
+    expect(issueBody.materials.issues.items[0].text).toBe("【设备】账号被锁定");
+    expect(issueBody.materials.issues.items[0].owner).toBeUndefined();
+    expect(issueBody.materials.issues.items[1]).toEqual(materials.issues.items[1]);
+    expect(issueBody.materials.projects).toEqual(materials.projects);
+    expect(issueBody.materials.nextWeek).toEqual(materials.nextWeek);
+    expect(JSON.stringify(issueBody)).not.toContain(KEY);
+
+    const planRes = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "nextWeekItem", itemId: "n1", materials }),
+    });
+    const planBody = await planRes.json();
+    expect(planRes.status).toBe(200);
+    expect(planBody.materials.nextWeek[0].projectName).toBe("【形态学】下周");
+    expect(planBody.materials.nextWeek[0].items).toEqual(["【形态学】完成压测"]);
+    expect(planBody.materials.nextWeek[1]).toEqual(materials.nextWeek[1]);
+    expect(planBody.materials.projects[0].bullets).toEqual(["联调要点需要压缩"]);
+    expect(planBody.materials.issues.items[0].text).toBe("【设备】账号锁定策略过严导致无法登录");
+    expect(seen[0]).not.toContain("其他项目要点不能出现");
+    expect(seen[0]).not.toContain("另一条问题不能出现");
+    expect(seen[1]).not.toContain("其他计划不能出现");
+    expect(seen[1]).not.toContain("联调要点需要压缩");
+    expect(materials).toEqual(packed());
+  });
+
+  it("returns ai.not_configured for a project scope without calling upstream", async () => {
+    let called = 0;
+    const { base } = await startApi({
+      aiEnv: {},
+      aiFetch: async () => {
+        called += 1;
+        return chatResponse({ project: { id: "p1", bullets: ["不该出现"] } });
+      },
+    });
+    const res = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: "project",
+        projectId: "p1",
+        materials: {
+          projects: [{ id: "p1", name: "设备管理", bullets: ["联调"] }],
+          issues: { empty: true, items: [] },
+          nextWeek: [],
+        },
+      }),
+    });
+    const body = await res.json();
+    expect(res.status).toBe(503);
+    expect(body.code).toBe("ai.not_configured");
+    expect(body.error).toContain("原文未改动");
+    expect(called).toBe(0);
+  });
+
+  it("rejects a missing target id before calling upstream", async () => {
+    let called = 0;
+    const { base } = await startApi({
+      aiEnv: { DEEPSEEK_API_KEY: KEY },
+      aiFetch: async () => {
+        called += 1;
+        return chatResponse({});
+      },
+    });
+    const materials = {
+      projects: [{ id: "p1", name: "设备管理", bullets: ["联调"] }],
+      issues: { empty: false, items: [{ id: "i1", text: "问题" }] },
+      nextWeek: [{ id: "n1", projectName: "计划", items: ["下周"] }],
+    };
+    const missingProject = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "project", materials }),
+    });
+    const missingIssue = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "issueItem", materials }),
+    });
+    expect(missingProject.status).toBe(400);
+    expect((await missingProject.json()).code).toBe("ai.bad_request");
+    expect(missingIssue.status).toBe(400);
+    expect(called).toBe(0);
+  });
+});
+
 describe("client and server source", () => {
   it("does not put the key on the frontend or in a VITE variable", () => {
     const source = [
       "src/lib/api.ts",
       "src/lib/aiSummarize.ts",
+      "src/lib/bracketTag.ts",
       "src/components/AiSummarizeControl.tsx",
+      "src/components/ZoneMergePanel.tsx",
       "src/pages/MaterialsPage.tsx",
       "server/ai.js",
       "server/http.js",
@@ -356,6 +559,12 @@ describe("client and server source", () => {
     expect(source).not.toMatch(/VITE_DEEPSEEK/);
     expect(source).not.toMatch(/import\.meta\.env/);
     expect(source).not.toMatch(/sk-[A-Za-z0-9]/);
-    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).not.toContain("一键总结");
+    expect(readFileSync("src/pages/MaterialsPage.tsx", "utf8")).not.toContain("一键总结");
+    expect(readFileSync("src/pages/MaterialsPage.tsx", "utf8")).not.toContain("总结范围");
+    expect(readFileSync("src/components/AiSummarizeControl.tsx", "utf8")).toContain("一键总结");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("ProjectAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("IssueAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("NextWeekAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).not.toContain("移到其他项目");
   });
 });

@@ -107,6 +107,75 @@ describe("commitAiPreview", () => {
   });
 });
 
+describe("item scopes", () => {
+  it("writes only that project's bullets", () => {
+    const current = zones();
+    current.projects.push({ id: "p2", name: "ERP", bullets: ["对账"], owner: "赵六" });
+    const proposed: ZoneSnapshot = {
+      ...current,
+      projects: [
+        { id: "p1", name: "不该改名", bullets: ["完成协议联调"] },
+        { id: "p2", name: "不该改 ERP", bullets: ["不该改对账"] },
+      ],
+      issues: { empty: false, items: [{ id: "i1", title: "不该改", text: "不该改" }] },
+      nextWeek: [{ id: "n1", projectName: "不该改", items: ["不该改"] }],
+    };
+    const next = applyAiText(current, proposed, "project", "p1");
+    expect(next.projects[0].name).toBe("设备管理平台联调");
+    expect(next.projects[0].bullets).toEqual(["完成协议联调"]);
+    expect(next.projects[0].sourceIds).toEqual(["s1"]);
+    expect(next.projects[1]).toBe(current.projects[1]);
+    expect(next.issues).toBe(current.issues);
+    expect(next.nextWeek).toBe(current.nextWeek);
+    expect(commitAiPreview(false, current, next, "project", "p1")).toBeNull();
+    expect(commitAiPreview(true, current, proposed, "project", "p1")?.projects[1]).toBe(current.projects[1]);
+  });
+
+  it("writes only that issue body and only that plan's lines", () => {
+    const current = zones();
+    current.issues.items.push({ id: "i2", title: "另一条", text: "保持原文" });
+    current.nextWeek.push({ id: "n2", projectName: "另一计划", items: ["保持计划"] });
+    const issueNext = applyAiText(
+      current,
+      {
+        ...current,
+        issues: {
+          empty: false,
+          items: [
+            { id: "i1", title: "不该改标题", text: "压缩后的问题" },
+            { id: "i2", title: "不该动", text: "不该动正文" },
+          ],
+        },
+      },
+      "issueItem",
+      "i1",
+    );
+    expect(issueNext.issues.items[0].title).toBe("登录失败告警");
+    expect(issueNext.issues.items[0].text).toBe("压缩后的问题");
+    expect(issueNext.issues.items[1]).toBe(current.issues.items[1]);
+    expect(issueNext.projects).toBe(current.projects);
+    expect(issueNext.nextWeek).toBe(current.nextWeek);
+
+    const planNext = applyAiText(
+      current,
+      {
+        ...current,
+        nextWeek: [
+          { id: "n1", projectName: "不该改名", items: ["压缩后的计划"] },
+          { id: "n2", projectName: "不该动", items: ["不该动"] },
+        ],
+      },
+      "nextWeekItem",
+      "n1",
+    );
+    expect(planNext.nextWeek[0].projectName).toBe("设备管理平台联调");
+    expect(planNext.nextWeek[0].items).toEqual(["压缩后的计划"]);
+    expect(planNext.nextWeek[1]).toBe(current.nextWeek[1]);
+    expect(planNext.projects).toBe(current.projects);
+    expect(planNext.issues).toBe(current.issues);
+  });
+});
+
 describe("requestAiSummary", () => {
   it("posts materials only and surfaces ai.not_configured", async () => {
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
@@ -136,6 +205,29 @@ describe("requestAiSummary", () => {
       expect(aiErrorMessage(err)).toContain("原文未改动");
     }
     expect(current).toEqual(zones());
+    vi.unstubAllGlobals();
+  });
+
+  it("posts scope=project and item scopes without an api key", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ scope: "project", materials: zones() }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    await requestAiSummary(zones(), "project", { projectId: "p1" });
+    await requestAiSummary(zones(), "issueItem", { itemId: "i1" });
+    await requestAiSummary(zones(), "nextWeekItem", { itemId: "n1" });
+    expect(bodies[0]).toMatchObject({ scope: "project", projectId: "p1" });
+    expect(bodies[1]).toMatchObject({ scope: "issueItem", itemId: "i1" });
+    expect(bodies[2]).toMatchObject({ scope: "nextWeekItem", itemId: "n1" });
+    expect(JSON.stringify(bodies)).not.toContain("apiKey");
+    expect(JSON.stringify(bodies)).not.toContain("VITE_");
     vi.unstubAllGlobals();
   });
 });
