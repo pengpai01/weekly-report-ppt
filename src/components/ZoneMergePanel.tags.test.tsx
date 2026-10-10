@@ -18,7 +18,7 @@ function snapshot(): ZoneSnapshot {
     issues: {
       empty: false,
       items: [
-        { id: "i1", title: "【设备】登录失败", text: "【设备】账号锁定" },
+        { id: "i1", title: "【别的】登录失败", text: "【设备】账号锁定" },
         { id: "i2", title: "补充说明", text: "需要值班手册" },
       ],
     },
@@ -69,26 +69,78 @@ function buttons(text: string, scope: ParentNode = document) {
   return [...scope.querySelectorAll("button")].filter((node) => node.textContent?.trim() === text) as HTMLButtonElement[];
 }
 
+function setControl(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  setter?.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("issue and next-week tags", () => {
-  it("groups by the first 【】 and keeps bodies and projects unchanged", async () => {
+  it("partitions issues by 【】 and fills next-week 项目 without writing projects", async () => {
     await mount();
-    const issueDevice = document.querySelector('[aria-label="问题分组 设备"]') as HTMLElement;
-    const issuePlain = document.querySelector('[aria-label="问题分组 未分类"]') as HTMLElement;
+    const issues = document.getElementById("merge-zone-issues") as HTMLElement;
+    const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
+    const issueDevice = issues.querySelector('[aria-label="问题分组 设备"]') as HTMLElement;
+    const issuePlain = issues.querySelector('[aria-label="问题分组 未分类"]') as HTMLElement;
+    expect(issueDevice.querySelector(".issue-partition-name")?.textContent).toBe("设备");
+    expect(issueDevice.querySelector(".issue-partition-count")?.textContent).toBe("1 条");
+    expect(issueDevice.querySelector(".zone-item-tag")).toBeNull();
     expect(issueDevice.querySelector("textarea")?.value).toBe("【设备】账号锁定");
     expect(issuePlain.querySelector("textarea")?.value).toBe("需要值班手册");
-    expect((document.querySelector('[aria-label="下周分组 形态学"] textarea') as HTMLTextAreaElement).value).toBe(
+    expect(issueDevice.textContent).not.toContain("需要值班手册");
+    expect(issuePlain.textContent).not.toContain("账号锁定");
+    expect(issues.querySelector('input[placeholder="标题"]')).toBeNull();
+    expect(issues.querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(issues.textContent).not.toContain("【别的】登录失败");
+    expect(plans.querySelector('input[placeholder="标题"]')).toBeNull();
+    expect(current.issues.items[0].title).toBe("【别的】登录失败");
+    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("形态学");
+    expect((plans.querySelector('[aria-label="下周项目 2"]') as HTMLInputElement).value).toBe("其他计划");
+    expect((plans.querySelector('[aria-label="下周分组 形态学"] textarea') as HTMLTextAreaElement).value).toBe(
       "【形态学】压测",
     );
-    expect((document.querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement).value).toBe(
-      "回归",
-    );
+    expect((plans.querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement).value).toBe("回归");
     expect(current.projects.map((item) => item.bullets)).toEqual([["联调"], ["对账"]]);
     expect(current.issues.items[0].text).toBe("【设备】账号锁定");
+
+    await act(async () => {
+      (issueDevice.querySelector('button[aria-label="收起问题分组 设备"]') as HTMLButtonElement).click();
+    });
+    expect(issueDevice.querySelector("textarea")).toBeNull();
+    expect(issuePlain.querySelector("textarea")?.value).toBe("需要值班手册");
+    await act(async () => {
+      (document.querySelector('button[aria-label="展开问题分组 设备"]') as HTMLButtonElement).click();
+    });
+    expect(issueDevice.querySelector("textarea")?.value).toBe("【设备】账号锁定");
+
+    const projects = current.projects;
+    await act(async () => {
+      setControl(plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement, "手改项目");
+    });
+    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("手改项目");
+    expect(current.projects).toBe(projects);
+    await act(async () => {
+      setControl(plans.querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement, "仍无括号");
+    });
+    expect(current.nextWeek.find((row) => row.id === "n2")?.projectName).toBe("未分类");
+    expect(current.projects).toBe(projects);
+    await act(async () => {
+      setControl(
+        plans.querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement,
+        "【设备】补充回归",
+      );
+    });
+    expect(current.nextWeek.find((row) => row.id === "n2")?.projectName).toBe("设备");
+    expect(current.nextWeek.find((row) => row.id === "n2")?.items).toEqual(["【设备】补充回归"]);
+    expect(current.projects).toBe(projects);
+    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("手改项目");
   });
 
   it("merges inside 问题 and 下周, then undoes without touching project bullets", async () => {
     await mount();
     const before = snapshot();
+    const nextWeekAfterFill = current.nextWeek;
     await act(async () => {
       (document.querySelector('input[aria-label="选择问题 1"]') as HTMLInputElement).click();
     });
@@ -101,7 +153,7 @@ describe("issue and next-week tags", () => {
     });
     expect(current.issues.items).toHaveLength(1);
     expect(current.projects).toEqual(before.projects);
-    expect(current.nextWeek).toEqual(before.nextWeek);
+    expect(current.nextWeek).toBe(nextWeekAfterFill);
     expect(buttons("撤销本次合并")[0].disabled).toBe(false);
 
     await act(async () => {
@@ -111,7 +163,7 @@ describe("issue and next-week tags", () => {
     expect(current.projects[0].bullets).toEqual(["联调"]);
 
     await act(async () => {
-      (document.querySelector('input[aria-label="选择下周计划 【形态学】下周"]') as HTMLInputElement).click();
+      (document.querySelector('input[aria-label="选择下周计划 形态学"]') as HTMLInputElement).click();
     });
     await act(async () => {
       (document.querySelector('input[aria-label="选择下周计划 其他计划"]') as HTMLInputElement).click();
