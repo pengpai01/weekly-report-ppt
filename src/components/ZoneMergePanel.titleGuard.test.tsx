@@ -165,7 +165,9 @@ describe("issue and next-week title editors stay gone", () => {
     expect((issues.querySelector('[aria-label="问题分组 设备"] textarea') as HTMLTextAreaElement | null)?.value).toBe(
       "【设备】账号锁定",
     );
-    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("已有计划");
+    expect(plans.querySelector('[aria-label^="下周项目"]')).toBeNull();
+    expect(plans.querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(current.nextWeek.find((row) => row.id === "n1")?.projectName).toBe("已有计划");
 
     const issueArticle = issues.querySelector('textarea[aria-label="问题内容 2"]')!.closest("article")!;
     await act(async () => {
@@ -268,7 +270,8 @@ describe("issue and next-week title editors stay gone", () => {
     expect(current.projects).toBe(projects);
     expect(titleEditorHits(plansZone())).toEqual([]);
     expect(plansZone().querySelector('input[placeholder="标题"]')).toBeNull();
-    expect(plansZone().querySelector('input[placeholder="项目"]')).not.toBeNull();
+    expect(plansZone().querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(plansZone().querySelector('input[placeholder="项目名称 *"]')).not.toBeNull();
     expect(plansZone().querySelector('textarea[placeholder="工作内容（每行一条）"]')).not.toBeNull();
     expect(issuesZone().querySelector('textarea[placeholder="问题或建议"]')).not.toBeNull();
   });
@@ -370,7 +373,8 @@ describe("issue and next-week title editors stay gone", () => {
     expect(issuesSource).not.toMatch(/item\.title/);
     expect(plansSource).not.toMatch(/\.title/);
     expect(panel).toContain('placeholder="问题或建议"');
-    expect(panel).toContain('placeholder="项目"');
+    expect(panel).not.toContain('placeholder="项目"');
+    expect(panel).toContain('placeholder="项目名称 *"');
     expect(panel).toContain('placeholder="工作内容（每行一条）"');
     expect(panel).toContain("暂无问题或建议。");
     expect(panel).toContain("暂无下周计划。");

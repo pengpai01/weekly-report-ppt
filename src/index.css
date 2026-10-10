@@ -310,6 +310,20 @@ a { color: inherit; }
   box-sizing: border-box;
   display: block;
 }
+/* Merge and delete stay with the body. They are not a second title bar. */
+#merge-zone-nextWeek .issue-partition-body .partition-item-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+#merge-zone-nextWeek .issue-partition-body .partition-item-actions .merge-check {
+  padding-top: 0;
+}
+#merge-zone-nextWeek .issue-partition-body .partition-item-actions .project-delete-confirm {
+  flex: 1 0 100%;
+}
 .issue-partition-count {
   color: var(--muted);
   font-size: 12px;

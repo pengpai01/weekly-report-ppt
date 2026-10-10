@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  IssueAiButton,
   IssuePartitionAiButton,
-  NextWeekAiButton,
   NextWeekPartitionAiButton,
   ProjectAiButton,
 } from "./AiSummarizeControl";
@@ -281,31 +279,6 @@ export function ZoneMergePanel({
       ...value,
       projects: value.projects.map((item) =>
         item.id === projectId ? clearLineMeta({ ...item, bullets }) : item,
-      ),
-    });
-  };
-
-  const applyIssueSummary = (itemId: string, text: string) => {
-    const current = value.issues.items.find((item) => item.id === itemId);
-    if (!current || current.text === text) return;
-    onChange({
-      ...value,
-      issues: {
-        ...value.issues,
-        items: value.issues.items.map((item) =>
-          item.id === itemId ? clearLineMeta({ ...item, text }) : item,
-        ),
-      },
-    });
-  };
-
-  const applyNextSummary = (itemId: string, items: string[]) => {
-    const current = value.nextWeek.find((item) => item.id === itemId);
-    if (!current || sameBullets(current.items, items)) return;
-    onChange({
-      ...value,
-      nextWeek: value.nextWeek.map((item) =>
-        item.id === itemId ? clearLineMeta({ ...item, items }) : item,
       ),
     });
   };
@@ -665,15 +638,12 @@ export function ZoneMergePanel({
                   />
                 </label>
                 <div>
-                  <div className="project-head">
-                    <PrimaryMark
-                      selected={activeZone === "issues" && selected.has(item.id)}
-                      primary={activeZone === "issues" && selection.primaryId === item.id}
-                      onSetPrimary={() => setSelection(setPrimary(selection, item.id))}
-                    />
-                    <IssueAiButton item={item} onApply={applyIssueSummary} />
-                  </div>
                 <div className="bullet-row">
+                  <PrimaryMark
+                    selected={activeZone === "issues" && selected.has(item.id)}
+                    primary={activeZone === "issues" && selection.primaryId === item.id}
+                    onSetPrimary={() => setSelection(setPrimary(selection, item.id))}
+                  />
                   <textarea
                     className="text-input"
                     placeholder="问题或建议"
@@ -797,56 +767,6 @@ export function ZoneMergePanel({
                 key={row.id}
                 className={`merge-item${activeZone === "nextWeek" && selected.has(row.id) ? " selected" : ""}`}
               >
-                <label className="merge-check">
-                  <input
-                    type="checkbox"
-                    checked={activeZone === "nextWeek" && selected.has(row.id)}
-                    aria-label={`选择下周计划 ${row.projectName || index + 1}`}
-                    onChange={() => toggle("nextWeek", row.id)}
-                  />
-                </label>
-                <div>
-                  <div className="project-head">
-                    <PrimaryMark
-                      selected={activeZone === "nextWeek" && selected.has(row.id)}
-                      primary={activeZone === "nextWeek" && selection.primaryId === row.id}
-                      onSetPrimary={() => setSelection(setPrimary(selection, row.id))}
-                    />
-                    <input
-                      className="text-input"
-                      placeholder="项目"
-                      aria-label={`下周项目 ${index + 1}`}
-                      value={row.projectName}
-                      onChange={(event) =>
-                        onChange({
-                          ...value,
-                          nextWeek: value.nextWeek.map((item) =>
-                            item.id === row.id ? { ...item, projectName: event.target.value } : item,
-                          ),
-                        })
-                      }
-                    />
-                    <NextWeekAiButton item={row} onApply={applyNextSummary} />
-                    <RowMenu label={`更多 下周计划 ${row.projectName || index + 1}`}>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="row-menu-item"
-                        onClick={() => setPendingItemDelete({ kind: "nextWeek", id: row.id })}
-                      >
-                        删除
-                      </button>
-                    </RowMenu>
-                  </div>
-                  {pendingItemDelete?.kind === "nextWeek" && pendingItemDelete.id === row.id ? (
-                    <ItemDeleteConfirm
-                      label="确认删除下周计划"
-                      copy={itemDeleteConfirmCopy("nextWeek", row.projectName)}
-                      onCancel={() => setPendingItemDelete(null)}
-                      onConfirm={commitItemDelete}
-                    />
-                  ) : null}
-                </div>
                 <textarea
                   className="text-input next-week-body"
                   placeholder="工作内容（每行一条）"
@@ -862,6 +782,39 @@ export function ZoneMergePanel({
                     })
                   }
                 />
+                <div className="partition-item-actions">
+                  <label className="merge-check">
+                    <input
+                      type="checkbox"
+                      checked={activeZone === "nextWeek" && selected.has(row.id)}
+                      aria-label={`选择下周计划 ${row.projectName || index + 1}`}
+                      onChange={() => toggle("nextWeek", row.id)}
+                    />
+                  </label>
+                  <PrimaryMark
+                    selected={activeZone === "nextWeek" && selected.has(row.id)}
+                    primary={activeZone === "nextWeek" && selection.primaryId === row.id}
+                    onSetPrimary={() => setSelection(setPrimary(selection, row.id))}
+                  />
+                  <RowMenu label={`更多 下周计划 ${row.projectName || index + 1}`}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      onClick={() => setPendingItemDelete({ kind: "nextWeek", id: row.id })}
+                    >
+                      删除
+                    </button>
+                  </RowMenu>
+                  {pendingItemDelete?.kind === "nextWeek" && pendingItemDelete.id === row.id ? (
+                    <ItemDeleteConfirm
+                      label="确认删除下周计划"
+                      copy={itemDeleteConfirmCopy("nextWeek", row.projectName)}
+                      onCancel={() => setPendingItemDelete(null)}
+                      onConfirm={commitItemDelete}
+                    />
+                  ) : null}
+                </div>
               </article>
               );
             })}
