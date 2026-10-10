@@ -206,7 +206,7 @@ describe("project delete undo", () => {
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
     expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
 
-    const issue = document.querySelector('input[aria-label="问题标题 1"]')!.closest("article")!;
+    const issue = document.querySelector('textarea[aria-label="问题内容 1"]')!.closest("article")!;
     await clickButton("删除", issue);
     expect(document.querySelector('[aria-label="确认删除问题"]')?.textContent).toContain("不会删除整个项目");
     expect(issue.textContent).toContain("登录失败");

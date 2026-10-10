@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IssueAiButton, NextWeekAiButton, ProjectAiButton } from "./AiSummarizeControl";
-import { groupByDisplayTag, issueDisplayTag, nextWeekDisplayTag } from "../lib/bracketTag";
+import {
+  applyNextWeekProjectName,
+  groupByDisplayTag,
+  issueDisplayTag,
+  nextWeekDisplayTag,
+} from "../lib/bracketTag";
 import { newIssue, newPlanRow, newProject } from "../lib/importZones";
 import {
   EMPTY_SELECTION,
@@ -112,6 +117,8 @@ export function ZoneMergePanel({
   const [pendingItemDelete, setPendingItemDelete] = useState<PendingItemDelete | null>(null);
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsedIssueTags, setCollapsedIssueTags] = useState<ReadonlySet<string>>(() => new Set());
+  const seededNextWeekIds = useRef(new Set<string>());
 
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
@@ -120,7 +127,21 @@ export function ZoneMergePanel({
     setPendingDeleteId(null);
     setPendingItemDelete(null);
     setOpenProjectIds(new Set());
+    setCollapsedIssueTags(new Set());
+    seededNextWeekIds.current.clear();
   }, [resetKey]);
+
+  useEffect(() => {
+    let changed = false;
+    const nextWeek = value.nextWeek.map((row) => {
+      if (seededNextWeekIds.current.has(row.id)) return row;
+      seededNextWeekIds.current.add(row.id);
+      const filled = applyNextWeekProjectName(row, "load");
+      if (filled !== row) changed = true;
+      return filled;
+    });
+    if (changed) onChange({ ...value, nextWeek });
+  }, [value, onChange]);
 
   useEffect(() => {
     if (pendingDeleteId && !value.projects.some((item) => item.id === pendingDeleteId)) {
@@ -133,6 +154,15 @@ export function ZoneMergePanel({
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleIssueTag = (tag: string) => {
+    setCollapsedIssueTags((current) => {
+      const next = new Set(current);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
       return next;
     });
   };
@@ -433,13 +463,31 @@ export function ZoneMergePanel({
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无问题或建议。</div>
         ) : (
           <div className="zone-tag-groups">
-            {groupByDisplayTag(value.issues.items, issueDisplayTag).map((group) => (
-              <section key={group.tag} className="zone-tag-group" aria-label={`问题分组 ${group.tag}`}>
-                <h4 className="zone-tag-heading">{group.tag}</h4>
-                <div className="merge-list">
+            {groupByDisplayTag(value.issues.items, issueDisplayTag).map((group) => {
+              const open = !collapsedIssueTags.has(group.tag);
+              return (
+              <section
+                key={group.tag}
+                className={`issue-partition${open ? "" : " is-collapsed"}`}
+                aria-label={`问题分组 ${group.tag}`}
+              >
+                <div className="issue-partition-head">
+                  <h4 className="issue-partition-name">{group.tag}</h4>
+                  <span className="issue-partition-count">{group.items.length} 条</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-expanded={open}
+                    aria-label={`${open ? "收起" : "展开"}问题分组 ${group.tag}`}
+                    onClick={() => toggleIssueTag(group.tag)}
+                  >
+                    {open ? "收起" : "展开"}
+                  </button>
+                </div>
+                {open ? (
+                <div className="issue-partition-body merge-list">
             {group.items.map((item) => {
               const index = value.issues.items.findIndex((row) => row.id === item.id);
-              const tag = issueDisplayTag(item);
               return (
               <article
                 key={item.id}
@@ -460,30 +508,13 @@ export function ZoneMergePanel({
                       primary={activeZone === "issues" && selection.primaryId === item.id}
                       onSetPrimary={() => setSelection(setPrimary(selection, item.id))}
                     />
-                    <span className="zone-item-tag">{tag}</span>
-                    <input
-                      className="text-input"
-                      placeholder="标题"
-                      aria-label={`问题标题 ${index + 1}`}
-                      value={item.title ?? ""}
-                      onChange={(event) =>
-                        onChange({
-                          ...value,
-                          issues: {
-                            ...value.issues,
-                            items: value.issues.items.map((row) =>
-                              row.id === item.id ? { ...row, title: event.target.value } : row,
-                            ),
-                          },
-                        })
-                      }
-                    />
                     <IssueAiButton item={item} onApply={applyIssueSummary} />
                   </div>
                 <div className="bullet-row">
                   <textarea
                     className="text-input"
                     placeholder="问题或建议"
+                    aria-label={`问题内容 ${index + 1}`}
                     value={item.text}
                     onChange={(event) =>
                       onChange({
@@ -511,7 +542,7 @@ export function ZoneMergePanel({
                 {pendingItemDelete?.kind === "issue" && pendingItemDelete.id === item.id ? (
                   <ItemDeleteConfirm
                     label="确认删除问题"
-                    copy={itemDeleteConfirmCopy("issue", item.title?.trim() || item.text)}
+                    copy={itemDeleteConfirmCopy("issue", item.text.trim() || item.title?.trim() || "")}
                     onCancel={() => setPendingItemDelete(null)}
                     onConfirm={commitItemDelete}
                   />
@@ -521,8 +552,10 @@ export function ZoneMergePanel({
               );
             })}
                 </div>
+                ) : null}
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -577,6 +610,7 @@ export function ZoneMergePanel({
                     <input
                       className="text-input"
                       placeholder="项目"
+                      aria-label={`下周项目 ${index + 1}`}
                       value={row.projectName}
                       onChange={(event) =>
                         onChange({
@@ -614,11 +648,11 @@ export function ZoneMergePanel({
                     onChange={(event) =>
                       onChange({
                         ...value,
-                        nextWeek: value.nextWeek.map((item) =>
-                          item.id === row.id
-                            ? clearLineMeta({ ...item, items: event.target.value.split("\n") })
-                            : item,
-                        ),
+                        nextWeek: value.nextWeek.map((item) => {
+                          if (item.id !== row.id) return item;
+                          const items = event.target.value.split("\n");
+                          return clearLineMeta(applyNextWeekProjectName({ ...item, items }, "edit"));
+                        }),
                       })
                     }
                   />
