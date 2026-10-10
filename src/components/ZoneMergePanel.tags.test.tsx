@@ -83,7 +83,8 @@ describe("issue and next-week tags", () => {
     const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
     const issueDevice = issues.querySelector('[aria-label="问题分组 设备"]') as HTMLElement;
     const issuePlain = issues.querySelector('[aria-label="问题分组 未分类"]') as HTMLElement;
-    expect(issueDevice.querySelector(".issue-partition-name")?.textContent).toBe("设备");
+    expect((issueDevice.querySelector(".issue-partition-name") as HTMLInputElement).value).toBe("设备");
+    expect((issueDevice.querySelector(".issue-partition-name") as HTMLInputElement).placeholder).toBe("项目名称 *");
     expect(issueDevice.querySelector(".issue-partition-count")?.textContent).toBe("1 条");
     expect(issueDevice.querySelector(".zone-item-tag")).toBeNull();
     expect(issueDevice.querySelector("textarea")?.value).toBe("【设备】账号锁定");

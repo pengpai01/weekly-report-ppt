@@ -162,7 +162,7 @@ describe("project delete undo", () => {
     expect(document.querySelectorAll("article.project-card")).toHaveLength(0);
     expect(document.body.textContent).toContain("添加项目");
     expect(document.body.textContent).toContain("暂无重要事项");
-    expect(document.querySelector('input[placeholder="项目名称 *"]')).toBeNull();
+    expect(document.getElementById("merge-zone-projects")?.querySelector('input[placeholder="项目名称 *"]')).toBeNull();
     expect(document.body.textContent).not.toContain("未命名项目");
     expect(document.body.textContent).toContain("登录失败");
 

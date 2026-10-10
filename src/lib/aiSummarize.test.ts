@@ -174,6 +174,53 @@ describe("item scopes", () => {
     expect(planNext.projects).toBe(current.projects);
     expect(planNext.issues).toBe(current.issues);
   });
+
+  it("writes only partition bodies and leaves projects and names alone", () => {
+    const current = zones();
+    current.issues.items.push({ id: "i2", title: "另一条", text: "【设备】另一条问题" });
+    current.nextWeek.push({ id: "n2", projectName: "其他", items: ["保持计划"] });
+    const projects = current.projects;
+    const issueNext = applyAiText(
+      current,
+      {
+        projects: [{ id: "p1", name: "不该写项目", bullets: ["不该写"] }],
+        issues: {
+          empty: false,
+          items: [
+            { id: "i1", title: "不该改标题", text: "压缩后的问题" },
+            { id: "i2", title: "不该动标题", text: "【设备】压缩后" },
+          ],
+        },
+        nextWeek: [{ id: "n1", projectName: "不该改", items: ["不该改计划"] }],
+      },
+      "issuePartition",
+    );
+    expect(issueNext.projects).toBe(projects);
+    expect(issueNext.nextWeek).toBe(current.nextWeek);
+    expect(issueNext.issues.items[0].title).toBe("登录失败告警");
+    expect(issueNext.issues.items[0].text).toBe("压缩后的问题");
+    expect(issueNext.issues.items[1].text).toBe("【设备】压缩后");
+    expect(commitAiPreview(false, current, issueNext, "issuePartition")).toBeNull();
+
+    const planNext = applyAiText(
+      current,
+      {
+        ...current,
+        projects: [{ id: "p9", name: "不该出现", bullets: ["不该"] }],
+        nextWeek: [
+          { id: "n1", projectName: "不该改名", items: ["压缩后的计划"] },
+          { id: "n2", projectName: "不该动", items: ["不该动"] },
+        ],
+      },
+      "nextWeekPartition",
+    );
+    expect(planNext.projects).toBe(projects);
+    expect(planNext.issues).toBe(current.issues);
+    expect(planNext.nextWeek[0].projectName).toBe("设备管理平台联调");
+    expect(planNext.nextWeek[0].items).toEqual(["压缩后的计划"]);
+    expect(planNext.nextWeek[1].projectName).toBe("其他");
+    expect(planNext.nextWeek[1].items).toEqual(["不该动"]);
+  });
 });
 
 describe("requestAiSummary", () => {
@@ -223,9 +270,13 @@ describe("requestAiSummary", () => {
     await requestAiSummary(zones(), "project", { projectId: "p1" });
     await requestAiSummary(zones(), "issueItem", { itemId: "i1" });
     await requestAiSummary(zones(), "nextWeekItem", { itemId: "n1" });
+    await requestAiSummary(zones(), "issuePartition");
+    await requestAiSummary(zones(), "nextWeekPartition");
     expect(bodies[0]).toMatchObject({ scope: "project", projectId: "p1" });
     expect(bodies[1]).toMatchObject({ scope: "issueItem", itemId: "i1" });
     expect(bodies[2]).toMatchObject({ scope: "nextWeekItem", itemId: "n1" });
+    expect(bodies[3]).toEqual({ scope: "issuePartition", materials: zones() });
+    expect(bodies[4]).toEqual({ scope: "nextWeekPartition", materials: zones() });
     expect(JSON.stringify(bodies)).not.toContain("apiKey");
     expect(JSON.stringify(bodies)).not.toContain("VITE_");
     vi.unstubAllGlobals();

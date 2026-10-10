@@ -283,11 +283,17 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  background: var(--pale);
-  border-bottom: 1px solid var(--line);
+  padding: 12px 12px 0;
+  background: #fff;
+  border-bottom: 0;
 }
-.issue-partition.is-collapsed .issue-partition-head { border-bottom: 0; }
+.issue-partition.is-collapsed .issue-partition-head { padding-bottom: 12px; }
+.issue-partition-body .merge-item {
+  border: 0;
+  background: transparent;
+  padding: 4px 12px 12px;
+  box-shadow: none;
+}
 .issue-partition-name {
   flex: 1;
   min-width: 0;
@@ -295,6 +301,14 @@ a { color: inherit; }
   font-size: 15px;
   font-weight: 700;
   color: var(--navy);
+  background: #fff;
+}
+/* Next-week item body only. Issue textareas and project bullets are not changed. */
+#merge-zone-nextWeek textarea.next-week-body {
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
 }
 .issue-partition-count {
   color: var(--muted);
@@ -302,18 +316,7 @@ a { color: inherit; }
   font-weight: 600;
   white-space: nowrap;
 }
-.issue-partition-body { padding: 10px; }
-.zone-item-tag {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 99px;
-  background: var(--pale);
-  color: var(--navy);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.6;
-  white-space: nowrap;
-}
+.issue-partition-body { padding: 0 0 4px; }
 .project-head input { flex: 1; }
 .project-card.is-collapsed .project-head { margin-bottom: 0; }
 .project-collapse-name {
