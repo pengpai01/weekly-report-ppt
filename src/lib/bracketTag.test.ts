@@ -7,6 +7,8 @@ import {
   firstBracketTag,
   groupByDisplayTag,
   issueDisplayTag,
+  collapseIssuePartitions,
+  collapseNextWeekPartitions,
   mergeIssuePartitions,
   mergeNextWeekPartitions,
   movePartitionItems,
@@ -16,6 +18,8 @@ import {
   renameIssuePartition,
   renameNextWeekPartition,
   togglePartitionSelection,
+  writeIssuePartitionBody,
+  writeNextWeekPartitionBody,
   EMPTY_PARTITION_SELECTION,
 } from "./bracketTag";
 
@@ -132,14 +136,11 @@ describe("partition rename and merge", () => {
     expect(chosenPartitionName(["设备", "采购"], "采购")).toBe("采购");
     expect(chosenPartitionName(["设备", UNTAGGED_LABEL], "设备")).toBe(UNTAGGED_LABEL);
     const merged = mergeIssuePartitions(source, ["设备", UNTAGGED_LABEL], "设备");
-    expect(merged.map(issueDisplayTag)).toEqual([
-      UNTAGGED_LABEL,
-      UNTAGGED_LABEL,
-      UNTAGGED_LABEL,
-      UNTAGGED_LABEL,
-    ]);
-    expect(merged[0].text).toBe("账号锁定");
-    expect(merged[3]).toBe(source[3]);
+    expect(merged).toHaveLength(1);
+    expect(issueDisplayTag(merged[0])).toBe(UNTAGGED_LABEL);
+    expect(merged[0].id).toBe("i1");
+    expect(merged[0].text).toBe("账号锁定\n需要手册\n见日志\n值班说明");
+    expect(source.map((item) => item.text)).toEqual(["【设备】账号锁定", "【设备】需要手册", "见日志", "值班说明"]);
     expect(mergeIssuePartitions(source, ["设备"], null)).toBe(source);
 
     const plans = [
@@ -147,8 +148,10 @@ describe("partition rename and merge", () => {
       { id: "n2", projectName: "其他计划", items: ["回归"] },
     ];
     const planMerge = mergeNextWeekPartitions(plans, ["形态学", UNTAGGED_LABEL], "形态学");
-    expect(planMerge[1]).toMatchObject({ projectName: "形态学", items: ["【形态学】回归"] });
-    expect(planMerge[0]).toBe(plans[0]);
+    expect(planMerge).toEqual([
+      { id: "n1", projectName: "形态学", items: ["【形态学】压测", "【形态学】回归"] },
+    ]);
+    expect(plans[0].items).toEqual(["【形态学】压测"]);
 
     const moved = movePartitionItems(source, "设备", 1, issueDisplayTag);
     expect(moved.map((item) => item.id)).toEqual(["i4", "i1", "i2", "i3"]);
@@ -160,5 +163,45 @@ describe("partition rename and merge", () => {
     expect(canMergePartitions(selection)).toBe(true);
     expect(selection.primaryTag).toBe("设备");
     expect(togglePartitionSelection(selection, "nextWeek", "形态学").error).toBe("只能合并同一分区内的条目");
+  });
+
+  it("collapses same 【】 into one row and writes back only that row", () => {
+    const source = issues();
+    const collapsed = collapseIssuePartitions(source);
+    expect(collapsed.map((item) => item.id)).toEqual(["i1", "i4"]);
+    expect(collapsed[0].text).toBe("【设备】账号锁定\n【设备】需要手册\n见日志");
+    expect(issueDisplayTag(collapsed[0])).toBe("设备");
+    expect(collapsed[1]).toBe(source[3]);
+    expect(collapseIssuePartitions(collapsed)).toBe(collapsed);
+    expect(source[1].text).toBe("【设备】需要手册");
+
+    const edited = writeIssuePartitionBody(collapsed, "设备", "【设备】只改这一条\n第二行");
+    expect(edited.map((item) => item.id)).toEqual(["i1", "i4"]);
+    expect(edited[0].text).toBe("【设备】只改这一条\n第二行");
+    expect(edited[1]).toBe(collapsed[1]);
+    expect(writeIssuePartitionBody(edited, "设备", edited[0].text)).toBe(edited);
+
+    const plans = [
+      { id: "n1", projectName: "形态学", items: ["【形态学】压测"], owner: "王五" },
+      { id: "n2", projectName: "形态学", items: ["【形态学】补测"] },
+      { id: "n3", projectName: "其他计划", items: ["回归"] },
+      { id: "n4", projectName: "带入", items: [""] },
+    ];
+    const planCollapsed = collapseNextWeekPartitions(plans);
+    expect(planCollapsed.map((row) => row.id)).toEqual(["n1", "n3", "n4"]);
+    expect(planCollapsed[0]).toMatchObject({
+      projectName: "形态学",
+      items: ["【形态学】压测", "【形态学】补测"],
+    });
+    expect(planCollapsed[0].owner).toBeUndefined();
+    expect(planCollapsed[1]).toBe(plans[2]);
+    expect(planCollapsed[2]).toBe(plans[3]);
+    expect(collapseNextWeekPartitions(planCollapsed)).toBe(planCollapsed);
+
+    const planEdited = writeNextWeekPartitionBody(planCollapsed, "形态学", "【形态学】压测\n只改这一条");
+    expect(planEdited.map((row) => row.id)).toEqual(["n1", "n3", "n4"]);
+    expect(planEdited[0]).toMatchObject({ projectName: "形态学", items: ["【形态学】压测", "只改这一条"] });
+    expect(planEdited[1]).toBe(planCollapsed[1]);
+    expect(planEdited[2]).toBe(planCollapsed[2]);
   });
 });
