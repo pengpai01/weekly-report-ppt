@@ -11,19 +11,17 @@ import {
   uploadIngestFile,
 } from "./ingest.js";
 import {
-  isImageSlot,
-  MAX_IMAGE_BODY_BYTES,
-  MAX_IMAGE_BYTES,
-  safeImageFilename,
-  sniffImage,
-} from "./images.js";
-import {
   importYunxiaoWorkitems,
   parseUpdatedWithinDays,
   resolveYunxiaoClient,
   resolveYunxiaoItemsStore,
   syncYunxiaoWorkitems,
 } from "./yunxiao.js";
+
+const COVER_IMAGE_GONE = {
+  error: "封面配图接口已停用。导出和预览使用模板原图，不会替换封面拼图。",
+  code: "image.gone",
+};
 
 const FORBIDDEN_BODY = {
   error:
@@ -99,18 +97,6 @@ export async function routeApi(store, req, res, deps = {}) {
   function noContent() {
     res.writeHead(204, corsHeaders(req, env));
     res.end();
-  }
-
-  function sendBytes(status, data, mime) {
-    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-    res.writeHead(status, {
-      ...corsHeaders(req, env),
-      "Content-Type": mime,
-      "Content-Length": buf.length,
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-    });
-    res.end(buf);
   }
 
   async function withImages(report) {
@@ -225,84 +211,9 @@ export async function routeApi(store, req, res, deps = {}) {
       return true;
     }
 
-    const imageItem = /^\/api\/reports\/([^/]+)\/images\/([^/]+)$/.exec(pathname);
-    if (imageItem) {
-      if (!allowSensitiveRequest(req, env)) {
-        reply(403, FORBIDDEN_BODY);
-        return true;
-      }
-      const reportId = decodeURIComponent(imageItem[1]);
-      const imageId = decodeURIComponent(imageItem[2]);
-      if (req.method === "GET") {
-        const image = await store.readImage(reportId, imageId);
-        if (!image) {
-          reply(404, { error: "Image not found" });
-          return true;
-        }
-        sendBytes(200, image.bytes, image.mime);
-        return true;
-      }
-      if (req.method === "DELETE") {
-        const removed = await store.deleteImage(reportId, imageId);
-        if (!removed) {
-          reply(404, { error: "Image not found" });
-          return true;
-        }
-        reply(200, { images: await store.listImages(reportId) });
-        return true;
-      }
-      reply(405, { error: "Method not allowed" });
-      return true;
-    }
-
-    const imageCollection = /^\/api\/reports\/([^/]+)\/images$/.exec(pathname);
-    if (imageCollection) {
-      if (req.method !== "POST") {
-        reply(405, { error: "Method not allowed" });
-        return true;
-      }
-      if (!allowSensitiveRequest(req, env)) {
-        reply(403, FORBIDDEN_BODY);
-        return true;
-      }
-      const reportId = decodeURIComponent(imageCollection[1]);
-      const slot = requestUrl(req).searchParams.get("slot") || "";
-      if (!isImageSlot(slot)) {
-        reply(400, {
-          error: "未知的图片槽。请使用封面左上、中部或右上。草稿未改动。",
-          code: "image.slot",
-        });
-        return true;
-      }
-      const existing = await store.get(reportId);
-      if (!existing) {
-        reply(404, { error: "Report not found" });
-        return true;
-      }
-      const buffer = await readRequestBuffer(req, MAX_IMAGE_BODY_BYTES);
-      const file = extractMultipartFile(buffer, req.headers["content-type"]);
-      if (file.buffer.length > MAX_IMAGE_BYTES) {
-        reply(413, {
-          error: "图片超过 4MB。请压缩后再上传。草稿未改动。",
-          code: "image.too_large",
-        });
-        return true;
-      }
-      const mime = sniffImage(file.buffer);
-      if (!mime) {
-        reply(400, {
-          error: "不支持的图片格式。请上传 PNG、JPEG、GIF 或 WEBP。草稿未改动。",
-          code: "image.unsupported",
-        });
-        return true;
-      }
-      const image = await store.putImage(reportId, {
-        slot,
-        mime,
-        filename: safeImageFilename(file.filename),
-        bytes: file.buffer,
-      });
-      reply(201, { image, images: await store.listImages(reportId) });
+    // Cover-slot upload/list/delete is retired. 410 does not read or write the draft.
+    if (/^\/api\/reports\/([^/]+)\/images(?:\/[^/]+)?$/.test(pathname)) {
+      reply(410, COVER_IMAGE_GONE);
       return true;
     }
 

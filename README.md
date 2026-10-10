@@ -153,29 +153,17 @@ curl -s -D - -X POST http://localhost:5174/api/ai/summarize -H "Content-Type: ap
 
 无密钥时应看到 `ai.not_configured`。然后再 `GET /api/reports/<id>`，标题和要点与请求前一致。配置密钥并重启后，同一请求在成功时返回 200 和裁剪后的 `materials`，数据库仍要等页面里「确认写入」才会变。超时、429、空结果同样不改原文。
 
-### 封面配图
+### 封面图
 
-素材页和预览页的封面都可以给三个模板拼图槽上传图片。槽位与 `templates/week-summary-template.pptx` 一致：
+素材页和预览页不再提供封面配图上传。预览和导出都使用 `templates/week-summary-template.pptx` 里的原图：封面三块拼图（形状 id 6 / 8 / 11，关系 rId3 / rId4 / rId5）和结束页的同一组图保持模板媒体，封面 Logo（`image1.png`）也不替换。
 
-| 槽 | 位置 | 模板形状 | 关系 |
-|----|------|----------|------|
-| `cover-1` | 封面左上 | id 6 | rId3（`image2.jpeg`） |
-| `cover-2` | 封面中部 | id 8 | rId4（`image3.jpeg`） |
-| `cover-3` | 封面右上 | id 11 | rId5（`image4.jpeg`） |
-
-结束页引用同一组媒体，所以替换后封面和结束页的这三块一起变。封面 Logo（`image1.png`）和正文页不是配图槽。未上传的槽导出时仍用模板原图。形状位置不改，广告文本仍会去掉。
-
-`POST /api/reports/:id/images?slot=cover-1`（multipart 字段 `file`）校验文件头，只接受 PNG、JPEG、GIF、WEBP，单张不超过 4MB。成功后把字节写入 `wr_report_images`（同一槽覆盖），**不改** `wr_reports` 里的标题、项目、问题、下周计划或幻灯片。`GET /api/reports/:id` 只带回图片元数据。`GET /api/reports/:id/images/:imageId` 返回字节。`DELETE` 同一路径删掉该槽。失败（格式不对、槽名不对、过大、非本机且无令牌）返回明确错误，不写图片表，也不改草稿正文。
-
-本机浏览器访问 `127.0.0.1` / `localhost` 即可上传。服务监听 `0.0.0.0` 时，来自其他机器的上传和图片读取会被拒绝，除非服务端配置了 `REPORT_API_TOKEN` 且请求带 `x-report-token`。前端不保存、不发送该令牌。
+`POST /api/reports/:id/images`、`GET /api/reports/:id/images/:imageId`、`DELETE` 同一路径返回 **410 Gone**（`code` 为 `image.gone`），不读草稿、不写 `projects`。表 `wr_report_images` 仍保留，本变更不执行 `DROP`。
 
 ```bat
-curl -s -F "file=@tile.png" "http://127.0.0.1:5174/api/reports/<id>/images?slot=cover-1"
-curl -s -o tile-out.png "http://127.0.0.1:5174/api/reports/<id>/images/<image-id>"
-curl -s "http://127.0.0.1:5174/api/reports/<id>"
+curl -s -D - -F "file=@tile.png" "http://127.0.0.1:5174/api/reports/<id>/images?slot=cover-1"
 ```
 
-然后再打开预览或导出 PPTX：封面左上应为这张图，项目要点与上传前一致。把 `notes.txt` 当作图片上传应得到 `image.unsupported`，草稿不变。
+应看到 `410` 和 `image.gone`。然后再打开预览或导出 PPTX：封面和结束页仍是模板原图。
 
 ### 手动核对草稿持久化
 
@@ -208,9 +196,8 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 4. 问题页可勾选「本期无（生成 N/A）」；下周计划可「从重要事项带入项目名」。
 5. 素材页与导入预览共用同一套分区多选。在「重要事项 / 存在问题与建议 / 下周工作计划」内至少选 2 条后点「合并」。标题取较长正式名，长度相同则取「主项」（默认先勾选的一条）。正文按勾选顺序拼接，每行前加 `[状态·负责人]`（缺的部分省略），并保留每条 `sourceId`。导入确认前可「撤销本次合并」（只在浏览器里；撤回到原预览后确认请求不带 `materials`）。素材页合并后的内容走已有的 `PUT /api/reports/:id`。确认入库后不能再全局撤销。不能跨分区合并。
 6. 每个项目、每条问题、每一行下周计划可点 **一键总结**。先看这一条的对照，确认后才写入该项目要点、该条问题正文或该行下周计划要点；撤销、取消或失败都不改原文。问题和下周计划按第一对【】分组显示，没有则归入未分类。
-7. 素材页底部可给封面三块拼图上传图片。预览封面侧栏也可以上传或移除。失败只提示错误，不改项目分区。
-8. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。封面页能看到已上传的拼图。
-9. **导出 PPTX**，用 PowerPoint 或 WPS 打开。文件由 `templates/week-summary-template.pptx` 填字生成，封面和项目页版式跟官方模板一致，已上传的拼图填进对应槽，不含 1ppt.com 广告页。
+7. **生成预览**，在中间画布查看 16:9 页面；右侧可改标题与要点，可上移/下移/删除项目页。封面和结束页使用模板原图。
+8. **导出 PPTX**，用 PowerPoint 或 WPS 打开。文件由 `templates/week-summary-template.pptx` 填字生成，封面和项目页版式跟官方模板一致，封面拼图保持模板原图，不含 1ppt.com 广告页。
 
 「从文本一键拆分」是规则启发式（识别 `一、项目` / `①②③`），拆分后需确认。项目卡片仍是主录入方式。
 
@@ -219,7 +206,7 @@ curl -s -o NUL -w "%%{http_code}" -X DELETE http://localhost:5174/api/reports/<i
 - Vite + React 19 + TypeScript
 - 客户端用 JSZip 打开 `templates/week-summary-template.pptx` 填字后下载（pptxgenjs 不能打开已有 pptx）
 - 本机 Node 服务 `weekly-report-ppt`；草稿存远程 MySQL 表 `wr_reports`，云效缓存表 `wr_yunxiao_items`，上传审计表 `wr_ingest_raw`
-- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；封面配图 `POST /api/reports/:id/images?slot=cover-1|cover-2|cover-3`、`GET/DELETE /api/reports/:id/images/:imageId`；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`；一键总结 `POST /api/ai/summarize`（`scope=project|issueItem|nextWeekItem`，不落库，确认后仍走原来的草稿保存）。图片和表格上传只允许本机，或携带服务端 `REPORT_API_TOKEN`。响应不使用 `Access-Control-Allow-Origin: *`
+- API：`GET/POST /api/reports`，`GET/PUT/DELETE /api/reports/:id`；封面配图 `POST/GET/DELETE /api/reports/:id/images…` 返回 410，不写草稿；只读云效 `GET /api/yunxiao/workitems`、`POST /api/yunxiao/import`；表格上传 `POST /api/ingest/upload`、`POST /api/ingest/confirm`、`POST /api/ingest/cancel`；一键总结 `POST /api/ai/summarize`（`scope=project|issueItem|nextWeekItem`，不落库，确认后仍走原来的草稿保存）。表格上传只允许本机，或携带服务端 `REPORT_API_TOKEN`。响应不使用 `Access-Control-Allow-Origin: *`
 
 ## 二期（本 MVP 明确不做）
 

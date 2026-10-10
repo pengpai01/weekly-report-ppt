@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
-import { CoverImageSlots } from "../components/CoverImageSlots";
 import { ReportGate } from "../components/ReportGate";
 import { SlideFrame } from "../components/SlideFrame";
 import { slideTitle } from "../components/SlideView";
 import { TemplateSlideView } from "../components/TemplateSlideView";
 import { downloadPptx, fillOfficialTemplate } from "../lib/exportPptx";
-import { fetchSlotImages } from "../lib/reportImages";
 import type { FilledSlide } from "../lib/templateSlides";
 import { generateSlides } from "../lib/generateSlides";
 import { emptyProject } from "../lib/report";
@@ -47,14 +45,12 @@ function PreviewWorkspace({ report }: { report: Report }) {
   const [filled, setFilled] = useState<FilledSlide[] | null>(null);
   const [fillError, setFillError] = useState("");
   const fillKey = JSON.stringify(slides);
-  const imageKey = (report.images ?? []).map((image) => `${image.slot}:${image.id}`).join("|");
 
   useEffect(() => {
     let cancel = false;
     void (async () => {
       try {
-        const images = await fetchSlotImages(report);
-        const deck = await fillOfficialTemplate(report, undefined, images);
+        const deck = await fillOfficialTemplate(report);
         if (cancel) return;
         setFilled(deck.slides);
         setFillError("");
@@ -65,9 +61,9 @@ function PreviewWorkspace({ report }: { report: Report }) {
     return () => {
       cancel = true;
     };
-    // fillKey / imageKey are the snapshots; report is the object from that same render.
+    // fillKey is the slide snapshot; report is the object from that same render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fillKey, imageKey]);
+  }, [fillKey]);
 
   const typeLabel = useMemo(() => (current ? slideTitle(current, index) : ""), [current, index]);
 
@@ -222,11 +218,6 @@ function PreviewWorkspace({ report }: { report: Report }) {
                     author: payload.author,
                   });
                 }}
-              />
-              <CoverImageSlots
-                reportId={report.id}
-                images={report.images ?? []}
-                onImages={(images) => patch(report.id, (currentReport) => ({ ...currentReport, images }))}
               />
             </>
           )}
