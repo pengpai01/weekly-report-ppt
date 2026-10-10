@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EMPTY_SELECTION } from "../lib/zoneMerge";
@@ -21,19 +24,36 @@ describe("shared merge preview", () => {
     expect(html).toContain(">合并<");
     expect(html).not.toContain("合并所选");
     expect(html).toContain("撤销本次合并");
-    expect(html).toContain("主项");
     expect(html).toContain("设备管理");
     expect(html).toContain("1 条");
-    expect(html).toContain("展开");
+    expect(html).toContain("展开 设备管理");
+    expect(html).toContain("展开问题分组 未分类");
+    expect(html).toContain("展开下周分组 未分类");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('aria-expanded="true"');
     expect(html).not.toContain("联调");
+    expect(html).not.toContain("登录失败");
+    expect(html).not.toContain("压测");
     expect(html).not.toContain("进展要点");
+    expect(html).not.toContain("只能合并同一分区。至少选择 2 条");
     expect(html).toContain("上移");
     expect(html).toContain("下移");
     expect(html).toContain("一键总结");
     expect(html).toContain("未分类");
     expect(html).not.toContain("移到其他项目");
-    expect(html).toContain("登录失败");
     expect(html).toContain('disabled=""');
+  });
+
+  it("keeps the sample and split entries and drops the materials help copy", () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const materials = readFileSync(join(root, "pages/MaterialsPage.tsx"), "utf8");
+    const panel = readFileSync(join(root, "components/ZoneMergePanel.tsx"), "utf8");
+    expect(materials).toContain("载入样例数据");
+    expect(materials).toContain("从文本一键拆分");
+    expect(materials).not.toContain("按项目填写进展要点");
+    expect(panel).not.toContain("只能合并同一分区。至少选择 2 条后点「合并」");
+    expect(panel).not.toContain("localStorage.setItem");
+    expect(panel).not.toContain("localStorage.getItem");
   });
 
   it("starts every project block collapsed with its name and item count", () => {
