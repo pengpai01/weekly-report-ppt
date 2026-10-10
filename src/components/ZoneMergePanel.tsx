@@ -542,7 +542,7 @@ export function ZoneMergePanel({
                 {pendingItemDelete?.kind === "issue" && pendingItemDelete.id === item.id ? (
                   <ItemDeleteConfirm
                     label="确认删除问题"
-                    copy={itemDeleteConfirmCopy("issue", item.text.trim() || item.title?.trim() || "")}
+                    copy={itemDeleteConfirmCopy("issue", item.text.trim())}
                     onCancel={() => setPendingItemDelete(null)}
                     onConfirm={commitItemDelete}
                   />

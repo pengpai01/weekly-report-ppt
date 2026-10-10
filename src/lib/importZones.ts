@@ -229,6 +229,7 @@ export function newProject(): ZoneSnapshot["projects"][number] {
   return { id: createId(), name: "", bullets: [""] };
 }
 
+/** New rows omit `title`. Older drafts may still carry it; the editor does not show or require it. */
 export function newIssue(): ZoneSnapshot["issues"]["items"][number] {
   return { id: createId(), text: "" };
 }
