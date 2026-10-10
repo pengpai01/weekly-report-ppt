@@ -139,72 +139,53 @@ describe("image access", () => {
 });
 
 describe("report image HTTP", () => {
-  it("uploads into a cover slot, serves bytes, and does not rewrite other zones", async () => {
+  it("returns 410 for cover-slot upload, read, and delete without writing the draft", async () => {
     const { base, store } = await startApi();
     const report = await draft(base);
     const before = await store.get(report.id);
 
-    const bad = new FormData();
-    bad.append("file", new Blob([Buffer.from("not-an-image")], { type: "image/png" }), "notes.png");
-    const rejected = await fetch(`${base}/api/reports/${report.id}/images?slot=cover-1`, {
-      method: "POST",
-      body: bad,
-    });
-    expect(rejected.status).toBe(400);
-    const rejectedBody = await rejected.json();
-    expect(rejectedBody.code).toBe("image.unsupported");
-    expect(rejectedBody.error).toContain("草稿未改动");
-    expect(rejected.headers.get("access-control-allow-origin")).not.toBe("*");
+    for (const slot of ["cover-1", "cover-2", "cover-3"]) {
+      const form = new FormData();
+      form.append("file", new Blob([PNG], { type: "image/png" }), "tile.png");
+      const uploaded = await fetch(`${base}/api/reports/${report.id}/images?slot=${slot}`, {
+        method: "POST",
+        body: form,
+      });
+      expect(uploaded.status).toBe(410);
+      const gone = await uploaded.json();
+      expect(gone.code).toBe("image.gone");
+      expect(gone.error).toContain("模板原图");
+      expect(uploaded.headers.get("access-control-allow-origin")).not.toBe("*");
+    }
 
-    const afterReject = await store.get(report.id);
-    expect(afterReject).toEqual(before);
+    const read = await fetch(`${base}/api/reports/${report.id}/images/img-1`);
+    expect(read.status).toBe(410);
+    expect((await read.json()).code).toBe("image.gone");
+
+    const removed = await fetch(`${base}/api/reports/${report.id}/images/img-1`, { method: "DELETE" });
+    expect(removed.status).toBe(410);
+    expect((await removed.json()).code).toBe("image.gone");
+
+    const after = await store.get(report.id);
+    expect(after).toEqual(before);
+    expect(after?.projects).toEqual(before?.projects);
+    expect(after?.issues).toEqual(before?.issues);
+    expect(after?.nextWeek).toEqual(before?.nextWeek);
+    expect(after?.slides).toEqual(before?.slides);
     expect(await store.listImages(report.id)).toEqual([]);
+    for (const project of after?.projects ?? []) {
+      expect(project).not.toHaveProperty("media");
+    }
+  });
 
-    const unknown = new FormData();
-    unknown.append("file", new Blob([PNG], { type: "image/png" }), "tile.png");
-    const badSlot = await fetch(`${base}/api/reports/${report.id}/images?slot=logo`, {
-      method: "POST",
-      body: unknown,
-    });
-    expect(badSlot.status).toBe(400);
-    expect((await badSlot.json()).code).toBe("image.slot");
-    expect(await store.listImages(report.id)).toEqual([]);
-
-    const form = new FormData();
-    form.append("file", new Blob([PNG], { type: "image/png" }), "tile.png");
-    const uploaded = await fetch(`${base}/api/reports/${report.id}/images?slot=cover-1`, {
-      method: "POST",
-      body: form,
-    });
-    expect(uploaded.status).toBe(201);
-    const saved = await uploaded.json();
-    expect(saved.image.slot).toBe("cover-1");
-    expect(saved.image.mime).toBe("image/png");
-    expect(saved.images).toHaveLength(1);
-
-    const still = await store.get(report.id);
-    expect(still?.title).toBe(before?.title);
-    expect(still?.updatedAt).toBe(before?.updatedAt);
-    expect(still?.projects).toEqual(before?.projects);
-    expect(still?.issues).toEqual(before?.issues);
-    expect(still?.nextWeek).toEqual(before?.nextWeek);
-    expect(still?.slides).toEqual(before?.slides);
-
-    const bytes = await fetch(`${base}/api/reports/${report.id}/images/${saved.image.id}`);
-    expect(bytes.status).toBe(200);
-    expect(bytes.headers.get("content-type")).toBe("image/png");
-    expect(bytes.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(Buffer.from(await bytes.arrayBuffer()).equals(PNG)).toBe(true);
-
-    const detail = await (await fetch(`${base}/api/reports/${report.id}`)).json();
-    expect(detail.projects).toEqual(report.projects);
-    expect(detail.images).toEqual(saved.images);
-
+  it("ignores a forged images field on report update and leaves projects unchanged", async () => {
+    const { base, store } = await startApi();
+    const report = await draft(base);
     const forged = await fetch(`${base}/api/reports/${report.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...detail,
+        ...report,
         title: "已改标题",
         images: [{ id: "forged", slot: "cover-1", mime: "image/png", filename: "x.png", byteLength: 1 }],
       }),
@@ -212,44 +193,12 @@ describe("report image HTTP", () => {
     expect(forged.status).toBe(200);
     const afterPut = await forged.json();
     expect(afterPut.title).toBe("已改标题");
-    expect(afterPut.images.map((image: { id: string }) => image.id)).toEqual([saved.image.id]);
-    expect(afterPut.projects).toEqual(detail.projects);
-  });
-
-  it("replaces one slot and deletes it without touching the draft text", async () => {
-    const { base, store } = await startApi();
-    const report = await draft(base);
-    const first = new FormData();
-    first.append("file", new Blob([PNG], { type: "image/png" }), "a.png");
-    const created = await (await fetch(`${base}/api/reports/${report.id}/images?slot=cover-2`, {
-      method: "POST",
-      body: first,
-    })).json();
-    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const second = new FormData();
-    second.append("file", new Blob([jpeg], { type: "image/jpeg" }), "b.jpg");
-    const replaced = await fetch(`${base}/api/reports/${report.id}/images?slot=cover-2`, {
-      method: "POST",
-      body: second,
-    });
-    expect(replaced.status).toBe(201);
-    const body = await replaced.json();
-    expect(body.images).toHaveLength(1);
-    expect(body.image.id).not.toBe(created.image.id);
-    expect(body.image.mime).toBe("image/jpeg");
-    const stale = await fetch(`${base}/api/reports/${report.id}/images/${created.image.id}`);
-    expect(stale.status).toBe(404);
-
-    const removed = await fetch(`${base}/api/reports/${report.id}/images/${body.image.id}`, { method: "DELETE" });
-    expect(removed.status).toBe(200);
-    expect(await removed.json()).toEqual({ images: [] });
-    const after = await store.get(report.id);
-    expect(after?.title).toBe("周工作总结");
-    expect(after?.projects).toEqual(report.projects);
+    expect(afterPut.images).toEqual([]);
+    expect(afterPut.projects).toEqual(report.projects);
     expect(await store.listImages(report.id)).toEqual([]);
   });
 
-  it("refuses non-loopback upload and ingest unless the server token matches", async () => {
+  it("returns 410 for cover-slot routes from any address and still refuses remote ingest", async () => {
     const store = createMemoryReportStore();
     const report = await store.create({ title: "周报", projects: [{ id: "p1", name: "设备", bullets: ["联调"] }] });
     const file = multipart("tile.png", PNG, "image/png");
@@ -265,8 +214,8 @@ describe("report image HTTP", () => {
       }) as unknown as IncomingMessage,
       deniedRes as unknown as ServerResponse,
     );
-    expect(deniedRes.status()).toBe(403);
-    expect(JSON.parse(deniedRes.text()).code).toBe("access.forbidden");
+    expect(deniedRes.status()).toBe(410);
+    expect(JSON.parse(deniedRes.text()).code).toBe("image.gone");
     expect(JSON.stringify(deniedRes.headers())).not.toContain("*");
     expect(await store.listImages(report.id)).toEqual([]);
     expect((await store.get(report.id))?.projects).toEqual(report.projects);
@@ -298,26 +247,10 @@ describe("report image HTTP", () => {
       allowedRes as unknown as ServerResponse,
       { accessEnv: { REPORT_API_TOKEN: TOKEN } },
     );
-    expect(allowedRes.status()).toBe(201);
-    const saved = JSON.parse(allowedRes.text());
-    expect(saved.image.slot).toBe("cover-3");
+    expect(allowedRes.status()).toBe(410);
+    expect(JSON.parse(allowedRes.text()).code).toBe("image.gone");
     expect((await store.get(report.id))?.title).toBe("周报");
-
-    const wrongRes = mockRes();
-    await routeApi(
-      store,
-      mockReq({
-        method: "POST",
-        url: `/api/reports/${report.id}/images?slot=cover-1`,
-        headers: { ...file.headers, "x-report-token": "nope" },
-        body: file.body,
-        remoteAddress: "203.0.113.9",
-      }) as unknown as IncomingMessage,
-      wrongRes as unknown as ServerResponse,
-      { accessEnv: { REPORT_API_TOKEN: TOKEN } },
-    );
-    expect(wrongRes.status()).toBe(403);
-    expect(await store.listImages(report.id)).toHaveLength(1);
+    expect(await store.listImages(report.id)).toEqual([]);
   });
 
   it("echoes only loopback origins on API responses", async () => {
