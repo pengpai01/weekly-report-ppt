@@ -663,8 +663,10 @@ describe("client and server source", () => {
     expect(readFileSync("src/pages/MaterialsPage.tsx", "utf8")).not.toContain("总结范围");
     expect(readFileSync("src/components/AiSummarizeControl.tsx", "utf8")).toContain("一键总结");
     expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("ProjectAiButton");
-    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("IssueAiButton");
-    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("NextWeekAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("IssuePartitionAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).toContain("NextWeekPartitionAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).not.toContain("IssueAiButton");
+    expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).not.toContain("NextWeekAiButton");
     expect(readFileSync("src/components/ZoneMergePanel.tsx", "utf8")).not.toContain("移到其他项目");
   });
 });

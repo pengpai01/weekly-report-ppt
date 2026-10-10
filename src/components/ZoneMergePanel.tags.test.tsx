@@ -104,8 +104,11 @@ describe("issue and next-week tags", () => {
     expect(plans.querySelector('[aria-label="标题"]')).toBeNull();
     expect(plans.querySelector('[aria-label^="标题"]')).toBeNull();
     expect(current.issues.items[0].title).toBe("【别的】登录失败");
-    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("形态学");
-    expect((plans.querySelector('[aria-label="下周项目 2"]') as HTMLInputElement).value).toBe("其他计划");
+    expect(plans.querySelector('[aria-label^="下周项目"]')).toBeNull();
+    expect(plans.querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(plans.querySelector(".issue-partition-body .project-head")).toBeNull();
+    expect(current.nextWeek.find((row) => row.id === "n1")?.projectName).toBe("形态学");
+    expect(current.nextWeek.find((row) => row.id === "n2")?.projectName).toBe("其他计划");
     expect((plans.querySelector('[aria-label="下周分组 形态学"] textarea') as HTMLTextAreaElement).value).toBe(
       "【形态学】压测",
     );
@@ -124,10 +127,9 @@ describe("issue and next-week tags", () => {
     expect(issueDevice.querySelector("textarea")?.value).toBe("【设备】账号锁定");
 
     const projects = current.projects;
-    await act(async () => {
-      setControl(plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement, "手改项目");
-    });
-    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("手改项目");
+    expect((plans.querySelector('[aria-label="下周分组 形态学"] input.issue-partition-name') as HTMLInputElement).value).toBe(
+      "形态学",
+    );
     expect(current.projects).toBe(projects);
     await act(async () => {
       setControl(plans.querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement, "仍无括号");
@@ -143,7 +145,8 @@ describe("issue and next-week tags", () => {
     expect(current.nextWeek.find((row) => row.id === "n2")?.projectName).toBe("设备");
     expect(current.nextWeek.find((row) => row.id === "n2")?.items).toEqual(["【设备】补充回归"]);
     expect(current.projects).toBe(projects);
-    expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("手改项目");
+    expect(current.nextWeek.find((row) => row.id === "n1")?.projectName).toBe("形态学");
+    expect(plans.querySelector('[aria-label^="下周项目"]')).toBeNull();
   });
 
   it("merges inside 问题 and 下周, then undoes without touching project bullets", async () => {

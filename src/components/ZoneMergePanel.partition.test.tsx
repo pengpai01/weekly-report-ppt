@@ -104,8 +104,11 @@ describe("partition headers", () => {
     expect(name.closest(".issue-partition")).toBe(device);
     expect(plans.querySelector("h4, .zone-tag-heading, .zone-item-tag")).toBeNull();
     expect(visibleLabel(plans)).not.toContain("形态学");
+    expect(device.querySelector(".issue-partition-body .project-head")).toBeNull();
+    expect(device.querySelector('input[placeholder="项目"]')).toBeNull();
     expect(device.querySelector('button[aria-label="一键总结问题分区 设备"]')).not.toBeNull();
-    expect(device.querySelector('button[aria-label="一键总结 【设备】账号锁定"]')).not.toBeNull();
+    expect(device.querySelector('button[aria-label="一键总结 【设备】账号锁定"]')).toBeNull();
+    expect(device.querySelector(".issue-partition-head input.issue-partition-name")).toBe(name);
 
     await commitName(name, "仪器");
     expect(current.issues.items.find((item) => item.id === "i1")).toMatchObject({
@@ -181,9 +184,13 @@ describe("partition headers", () => {
     expect(issues.querySelector("textarea.next-week-body")).toBeNull();
     expect(plans.querySelector("textarea.next-week-body")).not.toBeNull();
     expect(document.querySelector("textarea.project-bullets-input")).toBeNull();
+    expect(plans.querySelector(".issue-partition-body .project-head")).toBeNull();
+    expect(plans.querySelector('input[placeholder="项目"]')).toBeNull();
+    expect(plans.querySelector('[aria-label^="下周项目"]')).toBeNull();
+    expect(plans.querySelector(".issue-partition-head input.issue-partition-name")).not.toBeNull();
     expect(plans.querySelector('button[aria-label="一键总结下周分区 未分类"]')).not.toBeNull();
     expect(plans.querySelector('button[aria-label^="一键总结 【形态学】"]')).toBeNull();
-    expect(plans.querySelector('button[aria-label="一键总结 未分类"]')).not.toBeNull();
+    expect(plans.querySelector('button[aria-label="一键总结 未分类"]')).toBeNull();
   });
 
   it("keeps the full-width rule on the next-week body only", () => {
