@@ -8,17 +8,23 @@ import {
   EMPTY_PARTITION_SELECTION,
   applyNextWeekProjectName,
   canMergePartitions,
+  collapseIssuePartitions,
+  collapseNextWeekPartitions,
   groupByDisplayTag,
   issueDisplayTag,
+  issueGroupBody,
   mergeIssuePartitions,
   mergeNextWeekPartitions,
   movePartitionItems,
   nextWeekDisplayTag,
+  nextWeekGroupBody,
   normalizePartitionName,
   renameIssuePartition,
   renameNextWeekPartition,
   setPartitionPrimary,
   togglePartitionSelection,
+  writeIssuePartitionBody,
+  writeNextWeekPartitionBody,
   type PartitionSelection,
   type PartitionZone,
 } from "../lib/bracketTag";
@@ -57,8 +63,6 @@ export function itemDeleteConfirmCopy(kind: "bullet" | "issue" | "nextWeek", lab
   }
   return `确定删除下周计划${quoted}？仅删除这一行，不会删除整个项目。`;
 }
-
-type PendingItemDelete = { kind: "issue"; id: string } | { kind: "nextWeek"; id: string };
 
 /** One line is one bullet. Blank lines are dropped. An empty field is `[]`. */
 export function bulletsFromLines(text: string): string[] {
@@ -130,7 +134,6 @@ export function ZoneMergePanel({
   const [undo, setUndo] = useState<ZoneSnapshot[]>([]);
   const [error, setError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [pendingItemDelete, setPendingItemDelete] = useState<PendingItemDelete | null>(null);
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
   const [collapsedIssueTags, setCollapsedIssueTags] = useState<ReadonlySet<string>>(() => new Set());
@@ -143,7 +146,6 @@ export function ZoneMergePanel({
     setUndo([]);
     setError("");
     setPendingDeleteId(null);
-    setPendingItemDelete(null);
     setOpenProjectIds(new Set());
     setCollapsedIssueTags(new Set());
     setCollapsedPlanTags(new Set());
@@ -152,15 +154,24 @@ export function ZoneMergePanel({
   }, [resetKey]);
 
   useEffect(() => {
-    let changed = false;
-    const nextWeek = value.nextWeek.map((row) => {
+    let nameChanged = false;
+    const namedNextWeek = value.nextWeek.map((row) => {
       if (seededNextWeekIds.current.has(row.id)) return row;
       seededNextWeekIds.current.add(row.id);
       const filled = applyNextWeekProjectName(row, "load");
-      if (filled !== row) changed = true;
+      if (filled !== row) nameChanged = true;
       return filled;
     });
-    if (changed) onChange({ ...value, nextWeek });
+    const seeded = nameChanged ? namedNextWeek : value.nextWeek;
+    const nextWeek = collapseNextWeekPartitions(seeded);
+    const issues = collapseIssuePartitions(value.issues.items);
+    if (nextWeek === value.nextWeek && issues === value.issues.items) return;
+    onChange({
+      ...value,
+      projects: value.projects,
+      issues: issues === value.issues.items ? value.issues : { ...value.issues, items: issues },
+      nextWeek,
+    });
   }, [value, onChange]);
 
   useEffect(() => {
@@ -284,29 +295,35 @@ export function ZoneMergePanel({
   };
 
   const applyIssuePartitionSummary = (updates: { id: string; text: string }[]) => {
+    const base = collapseIssuePartitions(value.issues.items);
     const byId = new Map(updates.map((row) => [row.id, row.text]));
-    let changed = false;
-    const items = value.issues.items.map((item) => {
+    let changed = base !== value.issues.items;
+    const items = base.map((item) => {
       const text = byId.get(item.id);
       if (text == null || text === item.text) return item;
       changed = true;
       return clearLineMeta({ ...item, text });
     });
     if (!changed) return;
-    onChange({ ...value, issues: { ...value.issues, items } });
+    onChange({
+      ...value,
+      projects: value.projects,
+      issues: { ...value.issues, items: collapseIssuePartitions(items) },
+    });
   };
 
   const applyNextPartitionSummary = (updates: { id: string; items: string[] }[]) => {
+    const base = collapseNextWeekPartitions(value.nextWeek);
     const byId = new Map(updates.map((row) => [row.id, row.items]));
-    let changed = false;
-    const nextWeek = value.nextWeek.map((item) => {
+    let changed = base !== value.nextWeek;
+    const nextWeek = base.map((item) => {
       const items = byId.get(item.id);
       if (!items || sameBullets(item.items, items)) return item;
       changed = true;
       return clearLineMeta({ ...item, items });
     });
     if (!changed) return;
-    onChange({ ...value, nextWeek });
+    onChange({ ...value, projects: value.projects, nextWeek: collapseNextWeekPartitions(nextWeek) });
   };
 
   const rememberPartitionTag = (
@@ -361,34 +378,20 @@ export function ZoneMergePanel({
     onChange({ ...value, projects: value.projects, nextWeek });
   };
 
-  const commitItemDelete = () => {
-    const pending = pendingItemDelete;
-    setPendingItemDelete(null);
-    if (!pending) return;
-    if (pending.kind === "issue") {
-      if (!value.issues.items.some((row) => row.id === pending.id)) return;
-      onChange({
-        ...value,
-        issues: { ...value.issues, items: value.issues.items.filter((row) => row.id !== pending.id) },
-      });
-      return;
-    }
-    if (!value.nextWeek.some((item) => item.id === pending.id)) return;
-    onChange({ ...value, nextWeek: value.nextWeek.filter((item) => item.id !== pending.id) });
-  };
-
   const zoneName = selection.zone ? ZONE_LABEL[selection.zone] : "";
   const partitionZoneName = partitionSel.zone ? ZONE_LABEL[partitionSel.zone] : "";
   const statusText = error
     ? error
     : partitionSel.tags.length >= 2
-      ? `已选 ${partitionSel.tags.length} 个分区（${partitionZoneName}）。标题取较长名称，等长取主项。`
+      ? `已选 ${partitionSel.tags.length} 个分区（${partitionZoneName}）。标题取较长名称，等长取主项。正文按顺序拼进同一条。`
       : selection.ids.length >= 2
         ? `已选 ${selection.ids.length} 条（${zoneName}）。标题取较长名称，等长取主项。`
         : "只能合并同一分区。至少选择 2 条后点「合并」。标题取较长名称，等长取主项（默认先勾选）。正文按勾选顺序拼接，每行前加 [状态·负责人]。入库前可撤销本次合并。";
 
   const selected = new Set(selection.ids);
   const activeZone = selection.zone;
+  const issueItems = collapseIssuePartitions(value.issues.items);
+  const planRows = collapseNextWeekPartitions(value.nextWeek);
 
   return (
     <div className={`merge-panel${scrollable ? " merge-panel-scroll" : ""}`}>
@@ -577,11 +580,11 @@ export function ZoneMergePanel({
             本期无（生成 N/A 页）
           </span>
         </label>
-        {value.issues.empty ? null : value.issues.items.length === 0 ? (
+        {value.issues.empty ? null : issueItems.length === 0 ? (
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无问题或建议。</div>
         ) : (
           <div className="zone-tag-groups">
-            {groupByDisplayTag(value.issues.items, issueDisplayTag).map((group, groupIndex) => {
+            {groupByDisplayTag(issueItems, issueDisplayTag).map((group, groupIndex) => {
               const open = !collapsedIssueTags.has(group.tag);
               const partitionChecked = partitionSel.zone === "issues" && partitionSel.tags.includes(group.tag);
               return (
@@ -606,7 +609,7 @@ export function ZoneMergePanel({
                   />
                   <span className="drag-handle">{groupIndex + 1}</span>
                   <PartitionNameInput name={group.tag} onRename={(next) => renameIssueGroup(group.tag, next)} />
-                  <span className="issue-partition-count">{group.items.length} 条</span>
+                  <span className="issue-partition-count">{bulletsFromLines(issueGroupBody(group.items)).length} 条</span>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => moveIssueGroup(group.tag, -1)}>上移</button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => moveIssueGroup(group.tag, 1)}>下移</button>
                   <button
@@ -621,69 +624,46 @@ export function ZoneMergePanel({
                   <IssuePartitionAiButton tag={group.tag} items={group.items} onApply={applyIssuePartitionSummary} />
                 </div>
                 {open ? (
-                <div className="issue-partition-body merge-list">
-            {group.items.map((item) => {
-              const index = value.issues.items.findIndex((row) => row.id === item.id);
-              return (
-              <article
-                key={item.id}
-                className={`merge-item${activeZone === "issues" && selected.has(item.id) ? " selected" : ""}`}
-              >
-                <label className="merge-check">
-                  <input
-                    type="checkbox"
-                    checked={activeZone === "issues" && selected.has(item.id)}
-                    aria-label={`选择问题 ${index + 1}`}
-                    onChange={() => toggle("issues", item.id)}
-                  />
-                </label>
-                <div>
-                <div className="bullet-row">
-                  <PrimaryMark
-                    selected={activeZone === "issues" && selected.has(item.id)}
-                    primary={activeZone === "issues" && selection.primaryId === item.id}
-                    onSetPrimary={() => setSelection(setPrimary(selection, item.id))}
-                  />
-                  <textarea
-                    className="text-input"
-                    placeholder="问题或建议"
-                    aria-label={`问题内容 ${index + 1}`}
-                    value={item.text}
-                    onChange={(event) =>
-                      onChange({
-                        ...value,
-                        issues: {
-                          ...value.issues,
-                          items: value.issues.items.map((row) =>
-                            row.id === item.id ? clearLineMeta({ ...row, text: event.target.value }) : row,
-                          ),
-                        },
-                      })
-                    }
-                  />
-                  <RowMenu label={`更多 问题 ${index + 1}`}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="row-menu-item"
-                      onClick={() => setPendingItemDelete({ kind: "issue", id: item.id })}
-                    >
-                      删除
-                    </button>
-                  </RowMenu>
-                </div>
-                {pendingItemDelete?.kind === "issue" && pendingItemDelete.id === item.id ? (
-                  <ItemDeleteConfirm
-                    label="确认删除问题"
-                    copy={itemDeleteConfirmCopy("issue", item.text.trim())}
-                    onCancel={() => setPendingItemDelete(null)}
-                    onConfirm={commitItemDelete}
-                  />
-                ) : null}
-                </div>
-              </article>
-              );
-            })}
+                <div className="issue-partition-body">
+                  {group.items.some((item) => item.text.trim() !== "") ? (
+                    <textarea
+                      className="text-input"
+                      placeholder="问题或建议"
+                      aria-label={`问题内容 ${partitionAnchorIndex(issueItems, group.items, (item) => item.text.trim() !== "") + 1}`}
+                      value={issueGroupBody(group.items)}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          projects: value.projects,
+                          issues: {
+                            ...value.issues,
+                            items: writeIssuePartitionBody(value.issues.items, group.tag, event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  ) : null}
+                  {group.items.filter((item) => item.text.trim() === "").map((item) => (
+                    <textarea
+                      key={item.id}
+                      className="text-input"
+                      placeholder="问题或建议"
+                      aria-label={`问题内容 ${Math.max(issueItems.findIndex((row) => row.id === item.id), 0) + 1}`}
+                      value={item.text}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          projects: value.projects,
+                          issues: {
+                            ...value.issues,
+                            items: value.issues.items.map((row) =>
+                              row.id === item.id ? clearLineMeta({ ...row, text: event.target.value }) : row,
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  ))}
                 </div>
                 ) : null}
               </section>
@@ -708,11 +688,11 @@ export function ZoneMergePanel({
             </button>
           </div>
         </div>
-        {value.nextWeek.length === 0 ? (
+        {planRows.length === 0 ? (
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无下周计划。</div>
         ) : (
           <div className="zone-tag-groups">
-            {groupByDisplayTag(value.nextWeek, nextWeekDisplayTag).map((group, groupIndex) => {
+            {groupByDisplayTag(planRows, nextWeekDisplayTag).map((group, groupIndex) => {
               const open = !collapsedPlanTags.has(group.tag);
               const partitionChecked = partitionSel.zone === "nextWeek" && partitionSel.tags.includes(group.tag);
               return (
@@ -737,7 +717,7 @@ export function ZoneMergePanel({
                   />
                   <span className="drag-handle">{groupIndex + 1}</span>
                   <PartitionNameInput name={group.tag} onRename={(next) => renamePlanGroup(group.tag, next)} />
-                  <span className="issue-partition-count">{group.items.length} 条</span>
+                  <span className="issue-partition-count">{bulletsFromLines(nextWeekGroupBody(group.items)).length} 条</span>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => movePlanGroup(group.tag, -1)}>上移</button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => movePlanGroup(group.tag, 1)}>下移</button>
                   <button
@@ -759,65 +739,41 @@ export function ZoneMergePanel({
                   <NextWeekPartitionAiButton tag={group.tag} items={group.items} onApply={applyNextPartitionSummary} />
                 </div>
                 {open ? (
-                <div className="issue-partition-body merge-list">
-            {group.items.map((row) => {
-              const index = value.nextWeek.findIndex((item) => item.id === row.id);
-              return (
-              <article
-                key={row.id}
-                className={`merge-item${activeZone === "nextWeek" && selected.has(row.id) ? " selected" : ""}`}
-              >
-                <textarea
-                  className="text-input next-week-body"
-                  placeholder="工作内容（每行一条）"
-                  value={row.items.join("\n")}
-                  onChange={(event) =>
-                    onChange({
-                      ...value,
-                      nextWeek: value.nextWeek.map((item) => {
-                        if (item.id !== row.id) return item;
-                        const items = event.target.value.split("\n");
-                        return clearLineMeta(applyNextWeekProjectName({ ...item, items }, "edit"));
-                      }),
-                    })
-                  }
-                />
-                <div className="partition-item-actions">
-                  <label className="merge-check">
-                    <input
-                      type="checkbox"
-                      checked={activeZone === "nextWeek" && selected.has(row.id)}
-                      aria-label={`选择下周计划 ${row.projectName || index + 1}`}
-                      onChange={() => toggle("nextWeek", row.id)}
-                    />
-                  </label>
-                  <PrimaryMark
-                    selected={activeZone === "nextWeek" && selected.has(row.id)}
-                    primary={activeZone === "nextWeek" && selection.primaryId === row.id}
-                    onSetPrimary={() => setSelection(setPrimary(selection, row.id))}
-                  />
-                  <RowMenu label={`更多 下周计划 ${row.projectName || index + 1}`}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="row-menu-item"
-                      onClick={() => setPendingItemDelete({ kind: "nextWeek", id: row.id })}
-                    >
-                      删除
-                    </button>
-                  </RowMenu>
-                  {pendingItemDelete?.kind === "nextWeek" && pendingItemDelete.id === row.id ? (
-                    <ItemDeleteConfirm
-                      label="确认删除下周计划"
-                      copy={itemDeleteConfirmCopy("nextWeek", row.projectName)}
-                      onCancel={() => setPendingItemDelete(null)}
-                      onConfirm={commitItemDelete}
+                <div className="issue-partition-body">
+                  {group.items.some((row) => row.items.some((line) => line.trim() !== "")) ? (
+                    <textarea
+                      className="text-input next-week-body"
+                      placeholder="工作内容（每行一条）"
+                      aria-label={`下周内容 ${partitionAnchorIndex(planRows, group.items, (row) => row.items.some((line) => line.trim() !== "")) + 1}`}
+                      value={nextWeekGroupBody(group.items)}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          projects: value.projects,
+                          nextWeek: writeNextWeekPartitionBody(value.nextWeek, group.tag, event.target.value),
+                        })
+                      }
                     />
                   ) : null}
-                </div>
-              </article>
-              );
-            })}
+                  {group.items.filter((row) => !row.items.some((line) => line.trim() !== "")).map((row) => (
+                    <textarea
+                      key={row.id}
+                      className="text-input next-week-body"
+                      placeholder="工作内容（每行一条）"
+                      aria-label={`下周内容 ${Math.max(planRows.findIndex((item) => item.id === row.id), 0) + 1}`}
+                      value={row.items.join("\n")}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          projects: value.projects,
+                          nextWeek: value.nextWeek.map((item) => {
+                            if (item.id !== row.id) return item;
+                            return clearLineMeta(applyNextWeekProjectName({ ...item, items: event.target.value.split("\n") }, "edit"));
+                          }),
+                        })
+                      }
+                    />
+                  ))}
                 </div>
                 ) : null}
               </section>
@@ -895,30 +851,14 @@ function ProjectBulletsEditor({
   );
 }
 
-function ItemDeleteConfirm({
-  label,
-  copy,
-  onCancel,
-  onConfirm,
-}: {
-  label: string;
-  copy: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="project-delete-confirm" role="alertdialog" aria-label={label}>
-      <p>{copy}</p>
-      <div className="inline-actions">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
-          取消
-        </button>
-        <button type="button" className="btn btn-danger btn-sm" onClick={onConfirm}>
-          确定删除
-        </button>
-      </div>
-    </div>
-  );
+function partitionAnchorIndex<T extends { id: string }>(
+  all: readonly T[],
+  group: readonly T[],
+  filled: (item: T) => boolean,
+): number {
+  const anchor = group.find(filled) ?? group[0];
+  const index = all.findIndex((row) => row.id === anchor?.id);
+  return index < 0 ? 0 : index;
 }
 
 function RowMenu({ label, children }: { label: string; children: ReactNode }) {

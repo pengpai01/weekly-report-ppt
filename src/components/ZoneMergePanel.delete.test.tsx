@@ -206,31 +206,20 @@ describe("project delete undo", () => {
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
     expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
 
-    const issue = document.querySelector('textarea[aria-label="问题内容 1"]')!.closest("article")!;
-    await clickButton("删除", issue);
-    expect(document.querySelector('[aria-label="确认删除问题"]')?.textContent).toContain("不会删除整个项目");
-    expect(issue.textContent).toContain("登录失败");
-    await clickButton("取消");
-    expect(issue.textContent).toContain("登录失败");
-    await clickButton("删除", issue);
-    await clickButton("确定删除");
-    expect(document.body.textContent).not.toContain("登录失败");
-
-    const plan = document.querySelector('textarea[placeholder="工作内容（每行一条）"]')!.closest("article")!;
-    await clickButton("删除", plan);
-    expect(document.querySelector('[aria-label="确认删除下周计划"]')?.textContent).toContain("仅删除这一行");
-    expect(document.querySelector('[aria-label="确认删除下周计划"]')?.textContent).toContain("不会删除整个项目");
-    expect((document.querySelector('textarea[placeholder="工作内容（每行一条）"]') as HTMLTextAreaElement).value).toBe("压测");
-    await clickButton("取消");
-    expect(document.querySelector('textarea[placeholder="工作内容（每行一条）"]')).not.toBeNull();
+    const issues = document.getElementById("merge-zone-issues") as HTMLElement;
+    const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
+    expect(issues.querySelector(".issue-partition-body input")).toBeNull();
+    expect(issues.querySelector(".issue-partition-body .row-menu")).toBeNull();
+    expect(issues.querySelector(".partition-item-actions")).toBeNull();
+    expect(plans.querySelector(".issue-partition-body input")).toBeNull();
+    expect(plans.querySelector(".issue-partition-body .row-menu")).toBeNull();
+    expect(plans.querySelector(".partition-item-actions")).toBeNull();
+    expect((issues.querySelector("textarea") as HTMLTextAreaElement).value).toBe("登录失败");
+    expect((plans.querySelector("textarea") as HTMLTextAreaElement).value).toBe("压测");
     expect(document.querySelector('input[placeholder="项目"]')).toBeNull();
-    await clickButton("删除", plan);
-    await clickButton("确定删除");
-    expect(document.querySelector('textarea[placeholder="工作内容（每行一条）"]')).toBeNull();
-    expect(document.querySelector('input[placeholder="项目"]')).toBeNull();
-    expect(document.body.textContent).not.toContain("压测");
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
     expect(document.querySelectorAll("article.project-card")).toHaveLength(2);
+    expect(document.querySelector('summary[aria-label="更多 设备管理"]')).not.toBeNull();
   });
 });
 

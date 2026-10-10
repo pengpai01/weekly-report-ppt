@@ -288,11 +288,12 @@ a { color: inherit; }
   border-bottom: 0;
 }
 .issue-partition.is-collapsed .issue-partition-head { padding-bottom: 12px; }
-.issue-partition-body .merge-item {
-  border: 0;
-  background: transparent;
-  padding: 4px 12px 12px;
-  box-shadow: none;
+.issue-partition-body textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  box-sizing: border-box;
+  display: block;
 }
 .issue-partition-name {
   flex: 1;
@@ -303,26 +304,12 @@ a { color: inherit; }
   color: var(--navy);
   background: #fff;
 }
-/* Next-week item body only. Issue textareas and project bullets are not changed. */
+/* Next-week body keeps the full-width rule. Shared partition textareas are styled on .issue-partition-body. */
 #merge-zone-nextWeek textarea.next-week-body {
   grid-column: 1 / -1;
   width: 100%;
   box-sizing: border-box;
   display: block;
-}
-/* Merge and delete stay with the body. They are not a second title bar. */
-#merge-zone-nextWeek .issue-partition-body .partition-item-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-#merge-zone-nextWeek .issue-partition-body .partition-item-actions .merge-check {
-  padding-top: 0;
-}
-#merge-zone-nextWeek .issue-partition-body .partition-item-actions .project-delete-confirm {
-  flex: 1 0 100%;
 }
 .issue-partition-count {
   color: var(--muted);
@@ -330,7 +317,11 @@ a { color: inherit; }
   font-weight: 600;
   white-space: nowrap;
 }
-.issue-partition-body { padding: 0 0 4px; }
+.issue-partition-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
 .project-head input { flex: 1; }
 .project-card.is-collapsed .project-head { margin-bottom: 0; }
 .project-collapse-name {

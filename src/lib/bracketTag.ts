@@ -1,7 +1,7 @@
 /** First non-empty paired 【…】. Callers must not write this into projects[]. */
 
 import type { IssueItem, NextWeekRow } from "../types";
-import { pickMergeTitle } from "./zoneMerge";
+import { clearLineMeta, pickMergeTitle } from "./zoneMerge";
 
 export const UNTAGGED_LABEL = "未分类";
 
@@ -226,6 +226,147 @@ export function renameNextWeekPartition(items: readonly NextWeekRow[], fromTag: 
   return mapPartition(items, fromTag, toTag, nextWeekDisplayTag, retagNextWeek);
 }
 
+function unionSourceIds(items: readonly { sourceId?: string; sourceIds?: string[] }[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const ids = item.sourceIds?.length ? item.sourceIds : item.sourceId ? [item.sourceId] : [];
+    for (const id of ids) {
+      const value = String(id ?? "").trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+function filledIssues(items: readonly IssueItem[]): IssueItem[] {
+  return items.filter((item) => item.text.trim() !== "");
+}
+
+function planRowHasBody(row: { items?: readonly string[] }): boolean {
+  return (row.items ?? []).some((line) => line.trim() !== "");
+}
+
+/** One filled row keeps its text, including a trailing newline. Several rows join into one body. */
+export function issueGroupBody(items: readonly IssueItem[]): string {
+  const filled = filledIssues(items);
+  if (filled.length === 1) return filled[0].text;
+  if (!filled.length) return items[0]?.text ?? "";
+  return filled.map((item) => item.text.trim()).join("\n");
+}
+
+/** One filled row keeps its lines. Several rows join non-empty lines into one body. */
+export function nextWeekGroupBody(rows: readonly NextWeekRow[]): string {
+  const filled = rows.filter(planRowHasBody);
+  if (filled.length === 1) return filled[0].items.join("\n");
+  if (!filled.length) return (rows[0]?.items ?? []).join("\n");
+  return filled.flatMap((row) => row.items.map((line) => line.trim()).filter(Boolean)).join("\n");
+}
+
+function withSourceIds<T extends { sourceIds?: string[] }>(item: T, sourceIds: string[]): T {
+  return sourceIds.length ? { ...item, sourceIds } : item;
+}
+
+/**
+ * Same display tag, multiple non-empty rows → one row.
+ * Empty placeholders stay, so a blank「添加」 or carried project name is not discarded.
+ * Projects are not an input.
+ */
+export function collapseIssuePartitions(items: readonly IssueItem[]): IssueItem[] {
+  const groups = groupByDisplayTag(items, issueDisplayTag);
+  const replacement = new Map<string, IssueItem>();
+  const skip = new Set<string>();
+  for (const group of groups) {
+    const filled = filledIssues(group.items);
+    if (filled.length <= 1) continue;
+    const [anchor, ...rest] = filled;
+    rest.forEach((item) => skip.add(item.id));
+    replacement.set(
+      anchor.id,
+      withSourceIds(clearLineMeta({ ...anchor, text: issueGroupBody(filled) }), unionSourceIds(filled)),
+    );
+  }
+  if (!skip.size) return items as IssueItem[];
+  return items.flatMap((item) => {
+    if (skip.has(item.id)) return [];
+    return [replacement.get(item.id) ?? item];
+  });
+}
+
+/** Same rule as issues. `items` becomes the multi-line body. `projectName` stays the anchor row's. */
+export function collapseNextWeekPartitions(rows: readonly NextWeekRow[]): NextWeekRow[] {
+  const groups = groupByDisplayTag(rows, nextWeekDisplayTag);
+  const replacement = new Map<string, NextWeekRow>();
+  const skip = new Set<string>();
+  for (const group of groups) {
+    const filled = group.items.filter(planRowHasBody);
+    if (filled.length <= 1) continue;
+    const [anchor, ...rest] = filled;
+    rest.forEach((row) => skip.add(row.id));
+    const lines = nextWeekGroupBody(filled).split("\n");
+    replacement.set(
+      anchor.id,
+      withSourceIds(clearLineMeta({ ...anchor, items: lines }), unionSourceIds(filled)),
+    );
+  }
+  if (!skip.size) return rows as NextWeekRow[];
+  return rows.flatMap((row) => {
+    if (skip.has(row.id)) return [];
+    return [replacement.get(row.id) ?? row];
+  });
+}
+
+/**
+ * The partition textarea writes one row. Extra filled rows of this tag are
+ * absorbed into that body. Other tags, empty placeholders, and projects are left alone.
+ */
+export function writeIssuePartitionBody(items: readonly IssueItem[], tag: string, text: string): IssueItem[] {
+  const tagged = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => issueDisplayTag(item) === tag);
+  if (!tagged.length) return items as IssueItem[];
+  const filled = tagged.filter(({ item }) => item.text.trim() !== "");
+  const anchor = (filled[0] ?? tagged[0]).index;
+  const primary = items[anchor];
+  const drop = new Set(filled.slice(1).map(({ item }) => item.id));
+  if (!drop.size && primary.text === text) return items as IssueItem[];
+  const next = clearLineMeta({ ...primary, text });
+  const out: IssueItem[] = [];
+  items.forEach((item, index) => {
+    if (drop.has(item.id)) return;
+    out.push(index === anchor ? next : item);
+  });
+  return out;
+}
+
+/** Same write-back as issues: one next-week row, body split into lines, name follows the body 【】. */
+export function writeNextWeekPartitionBody(rows: readonly NextWeekRow[], tag: string, raw: string): NextWeekRow[] {
+  const tagged = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => nextWeekDisplayTag(row) === tag);
+  if (!tagged.length) return rows as NextWeekRow[];
+  const filled = tagged.filter(({ row }) => planRowHasBody(row));
+  const anchor = (filled[0] ?? tagged[0]).index;
+  const primary = rows[anchor];
+  const drop = new Set(filled.slice(1).map(({ row }) => row.id));
+  const items = raw.split("\n");
+  const next = clearLineMeta(applyNextWeekProjectName({ ...primary, items }, "edit"));
+  const sameItems =
+    primary.items.length === next.items.length && primary.items.every((line, index) => line === next.items[index]);
+  const metaUntouched = !primary.statusLabel && !primary.owner && !primary.mergeLines;
+  if (!drop.size && sameItems && primary.projectName === next.projectName && metaUntouched) {
+    return rows as NextWeekRow[];
+  }
+  const out: NextWeekRow[] = [];
+  rows.forEach((row, index) => {
+    if (drop.has(row.id)) return;
+    out.push(index === anchor ? next : row);
+  });
+  return out;
+}
+
 function mergeRetagged<T>(
   items: readonly T[],
   tags: readonly string[],
@@ -252,7 +393,9 @@ export function mergeIssuePartitions(
   tags: readonly string[],
   primaryTag: string | null,
 ): IssueItem[] {
-  return mergeRetagged(items, tags, primaryTag, issueDisplayTag, retagIssue);
+  const retagged = mergeRetagged(items, tags, primaryTag, issueDisplayTag, retagIssue);
+  if (retagged === items) return items as IssueItem[];
+  return collapseIssuePartitions(retagged);
 }
 
 export function mergeNextWeekPartitions(
@@ -260,7 +403,9 @@ export function mergeNextWeekPartitions(
   tags: readonly string[],
   primaryTag: string | null,
 ): NextWeekRow[] {
-  return mergeRetagged(items, tags, primaryTag, nextWeekDisplayTag, retagNextWeek);
+  const retagged = mergeRetagged(items, tags, primaryTag, nextWeekDisplayTag, retagNextWeek);
+  if (retagged === items) return items as NextWeekRow[];
+  return collapseNextWeekPartitions(retagged);
 }
 
 /** Move a whole partition block. Item order inside each partition stays put. */

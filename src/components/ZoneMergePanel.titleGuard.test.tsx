@@ -169,11 +169,10 @@ describe("issue and next-week title editors stay gone", () => {
     expect(plans.querySelector('input[placeholder="项目"]')).toBeNull();
     expect(current.nextWeek.find((row) => row.id === "n1")?.projectName).toBe("已有计划");
 
-    const issueArticle = issues.querySelector('textarea[aria-label="问题内容 2"]')!.closest("article")!;
-    await act(async () => {
-      buttons("删除", issueArticle)[0].click();
-    });
-    expect(document.querySelector('[aria-label="确认删除问题"]')?.textContent).not.toContain("仅旧标题");
+    expect(issues.querySelector(".issue-partition-body input")).toBeNull();
+    expect(issues.querySelector(".issue-partition-body .row-menu")).toBeNull();
+    expect(issues.querySelector(".partition-item-actions")).toBeNull();
+    expect(issues.querySelector('textarea[aria-label="问题内容 2"]')).not.toBeNull();
     expect(current.issues.items[1]?.title).toBe("仅旧标题");
   });
 
@@ -254,9 +253,14 @@ describe("issue and next-week title editors stay gone", () => {
     await act(async () => {
       setControl(plansZone().querySelector('[aria-label="下周分组 采购"] textarea') as HTMLTextAreaElement, "没有括号");
     });
-    expect(current.nextWeek.find((row) => row.id === addedPlan?.id)?.projectName).toBe("未分类");
-    expect(current.nextWeek.find((row) => row.id === addedPlan?.id)?.items).toEqual(["没有括号"]);
-    expect(plansZone().querySelector('[aria-label="下周分组 未分类"]')).not.toBeNull();
+    expect(current.nextWeek.find((row) => row.id === "n-old")).toMatchObject({
+      projectName: "已有计划",
+      items: ["回归", "没有括号"],
+    });
+    expect(current.nextWeek.find((row) => row.id === addedPlan?.id)).toBeUndefined();
+    expect((plansZone().querySelector('[aria-label="下周分组 未分类"] textarea') as HTMLTextAreaElement).value).toBe(
+      "回归\n没有括号",
+    );
     expect(current.projects).toEqual(initial.projects);
     expect(titleEditorHits(issuesZone())).toEqual([]);
     expect(titleEditorHits(plansZone())).toEqual([]);

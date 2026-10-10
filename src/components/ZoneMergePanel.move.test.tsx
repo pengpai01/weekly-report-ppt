@@ -67,8 +67,10 @@ describe("project bullets list", () => {
     expect(device.querySelector(".bullet-move-row")).toBeNull();
     expect(device.querySelector(".bullet-row")).toBeNull();
     expect(device.textContent).not.toContain("移到其他项目");
-    expect(document.querySelector('summary[aria-label="更多 问题 1"]')?.textContent).not.toContain("移到其他项目");
-    expect(document.querySelector('summary[aria-label="更多 下周计划 设备管理"]')?.textContent).not.toContain("移到其他项目");
+    expect(document.querySelector('summary[aria-label="更多 问题 1"]')).toBeNull();
+    expect(document.querySelector('summary[aria-label="更多 下周计划 设备管理"]')).toBeNull();
+    expect(document.querySelector("#merge-zone-issues .partition-item-actions")).toBeNull();
+    expect(document.querySelector("#merge-zone-nextWeek .partition-item-actions")).toBeNull();
     expect(document.querySelector('button[aria-label="收起 设备管理"]')?.getAttribute("aria-expanded")).toBe("true");
   });
 });

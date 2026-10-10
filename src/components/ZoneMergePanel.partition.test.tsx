@@ -46,8 +46,8 @@ function Host() {
   );
 }
 
-async function mount() {
-  current = snapshot();
+async function mount(initial: ZoneSnapshot = snapshot()) {
+  current = initial;
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -143,7 +143,7 @@ describe("partition headers", () => {
     await act(async () => {
       buttons("合并")[0].click();
     });
-    expect(current.issues.items.map((item) => item.text)).toEqual(["【形态学】账号锁定", "【形态学】需要手册"]);
+    expect(current.issues.items.map((item) => item.text)).toEqual(["【形态学】账号锁定\n【形态学】需要手册"]);
     expect(current.projects).toBe(projects);
     expect(buttons("撤销本次合并")[0].disabled).toBe(false);
     await act(async () => {
@@ -176,8 +176,9 @@ describe("partition headers", () => {
     );
     expect(current.nextWeek.find((row) => row.id === "n1")).toMatchObject({
       projectName: "未分类",
-      items: ["压测"],
+      items: ["压测", "回归"],
     });
+    expect(current.nextWeek.find((row) => row.id === "n2")).toBeUndefined();
     expect(current.nextWeek.find((row) => row.id === "n1")?.items.join("")).not.toContain("【");
     expect(current.projects).toBe(projects);
 
@@ -199,5 +200,106 @@ describe("partition headers", () => {
     expect(css).not.toMatch(/#merge-zone-issues textarea/);
     expect(css).not.toMatch(/\.project-bullets-input\s*\{[^}]*grid-column/);
     expect(css).not.toContain(".zone-item-tag");
+    expect(css).not.toContain("partition-item-actions");
+  });
+
+  it("collapses same 【】 into one body, merges partitions, and has no inner bar", async () => {
+    const projects = [{ id: "p1", name: "设备管理", bullets: ["联调"], status: "in_progress" as const }];
+    await mount({
+      projects,
+      issues: {
+        empty: false,
+        items: [
+          { id: "i1", text: "【设备】账号锁定", owner: "李四" },
+          { id: "i2", text: "【设备】需要手册" },
+          { id: "i3", text: "【形态学】别动" },
+        ],
+      },
+      nextWeek: [
+        { id: "n1", projectName: "形态学", items: ["【形态学】压测"] },
+        { id: "n2", projectName: "形态学", items: ["【形态学】补测"] },
+        { id: "n3", projectName: "其他计划", items: ["回归"] },
+      ],
+    });
+    const issues = document.getElementById("merge-zone-issues") as HTMLElement;
+    const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
+    const device = issues.querySelector('[aria-label="问题分组 设备"]') as HTMLElement;
+    const deviceBody = device.querySelector("textarea") as HTMLTextAreaElement;
+    expect(issues.querySelectorAll("textarea")).toHaveLength(2);
+    expect(deviceBody.value).toBe("【设备】账号锁定\n【设备】需要手册");
+    expect(device.querySelector(".issue-partition-count")?.textContent).toBe("2 条");
+    expect(device.querySelector(".issue-partition-body input")).toBeNull();
+    expect(device.querySelector(".issue-partition-body .row-menu")).toBeNull();
+    expect(device.querySelector(".partition-item-actions")).toBeNull();
+    expect(device.querySelector(".issue-partition-head input.issue-partition-name")).not.toBeNull();
+    expect(device.querySelector('button[aria-label="一键总结问题分区 设备"]')).not.toBeNull();
+    expect(current.issues.items.map((item) => item.id)).toEqual(["i1", "i3"]);
+    expect(current.projects).toBe(projects);
+
+    await act(async () => {
+      setControl(deviceBody, "【设备】账号锁定\n只改设备");
+    });
+    expect(current.issues.items.find((item) => item.id === "i1")?.text).toBe("【设备】账号锁定\n只改设备");
+    expect(current.issues.items.find((item) => item.id === "i3")?.text).toBe("【形态学】别动");
+    expect(current.projects).toBe(projects);
+
+    const plan = plans.querySelector('[aria-label="下周分组 形态学"]') as HTMLElement;
+    const planBody = plan.querySelector("textarea") as HTMLTextAreaElement;
+    expect(plans.querySelectorAll("textarea")).toHaveLength(2);
+    expect(planBody.value).toBe("【形态学】压测\n【形态学】补测");
+    expect(plan.querySelector(".issue-partition-body input")).toBeNull();
+    expect(plan.querySelector(".issue-partition-body .row-menu")).toBeNull();
+    expect(plan.querySelector(".partition-item-actions")).toBeNull();
+    expect(current.nextWeek.map((row) => row.id)).toEqual(["n1", "n3"]);
+    expect(current.nextWeek.find((row) => row.id === "n1")?.items).toEqual(["【形态学】压测", "【形态学】补测"]);
+
+    await act(async () => {
+      setControl(planBody, "【形态学】压测\n只改计划");
+    });
+    expect(current.nextWeek.find((row) => row.id === "n1")?.items).toEqual(["【形态学】压测", "只改计划"]);
+    expect(current.nextWeek.find((row) => row.id === "n3")?.items).toEqual(["回归"]);
+    expect(current.projects).toBe(projects);
+
+    const beforeIssues = current.issues.items.map((item) => ({ id: item.id, text: item.text }));
+    await act(async () => {
+      (issues.querySelector('input[aria-label="选择问题分区 设备"]') as HTMLInputElement).click();
+    });
+    await act(async () => {
+      (issues.querySelector('input[aria-label="选择问题分区 形态学"]') as HTMLInputElement).click();
+    });
+    await act(async () => {
+      buttons("合并")[0].click();
+    });
+    expect(current.issues.items).toHaveLength(1);
+    expect(current.issues.items[0].text).toBe("【形态学】账号锁定\n只改设备\n【形态学】别动");
+    expect(current.projects).toBe(projects);
+    await act(async () => {
+      buttons("撤销本次合并")[0].click();
+    });
+    expect(current.issues.items.map((item) => ({ id: item.id, text: item.text }))).toEqual(beforeIssues);
+    expect(current.projects).toBe(projects);
+
+    const beforePlans = current.nextWeek.map((row) => ({ id: row.id, projectName: row.projectName, items: row.items }));
+    await act(async () => {
+      (plans.querySelector('input[aria-label="选择下周分区 形态学"]') as HTMLInputElement).click();
+    });
+    await act(async () => {
+      (plans.querySelector('input[aria-label="选择下周分区 未分类"]') as HTMLInputElement).click();
+    });
+    await act(async () => {
+      buttons("合并")[0].click();
+    });
+    expect(current.nextWeek).toHaveLength(1);
+    expect(current.nextWeek[0]).toMatchObject({
+      projectName: "形态学",
+      items: ["【形态学】压测", "只改计划", "【形态学】回归"],
+    });
+    expect(current.projects).toBe(projects);
+    await act(async () => {
+      buttons("撤销本次合并")[0].click();
+    });
+    expect(current.nextWeek.map((row) => ({ id: row.id, projectName: row.projectName, items: row.items }))).toEqual(beforePlans);
+    expect(current.issues.items.map((item) => item.text)).toEqual(beforeIssues.map((item) => item.text));
+    expect(current.projects).toBe(projects);
   });
 });

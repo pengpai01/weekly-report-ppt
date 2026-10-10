@@ -250,7 +250,7 @@ describe("project bullets stay a single textarea", () => {
   it("source has no second bullet list under the project editor", () => {
     const panel = readRepo("src/components/ZoneMergePanel.tsx");
     const projectsSource = sliceBetween(panel, 'id="merge-zone-projects"', 'id="merge-zone-issues"');
-    const editorSource = sliceBetween(panel, "function ProjectBulletsEditor", "function ItemDeleteConfirm");
+    const editorSource = sliceBetween(panel, "function ProjectBulletsEditor", "function partitionAnchorIndex");
     const preview = readRepo("src/pages/PreviewPage.tsx");
     const projectEditor = sliceBetween(preview, "function ProjectEditor", "function IssuesEditor");
     const materials = readRepo("src/pages/MaterialsPage.tsx");

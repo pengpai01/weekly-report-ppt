@@ -152,18 +152,21 @@ describe("issue and next-week tags", () => {
   it("merges inside 问题 and 下周, then undoes without touching project bullets", async () => {
     await mount();
     const before = snapshot();
+    const projects = current.projects;
     const nextWeekAfterFill = current.nextWeek;
     await act(async () => {
-      (document.querySelector('input[aria-label="选择问题 1"]') as HTMLInputElement).click();
+      (document.querySelector('input[aria-label="选择问题分区 设备"]') as HTMLInputElement).click();
     });
     await act(async () => {
-      (document.querySelector('input[aria-label="选择问题 2"]') as HTMLInputElement).click();
+      (document.querySelector('input[aria-label="选择问题分区 未分类"]') as HTMLInputElement).click();
     });
     expect(buttons("合并")[0].disabled).toBe(false);
     await act(async () => {
       buttons("合并")[0].click();
     });
     expect(current.issues.items).toHaveLength(1);
+    expect(current.issues.items[0].text).toBe("账号锁定\n需要值班手册");
+    expect(current.projects).toBe(projects);
     expect(current.projects).toEqual(before.projects);
     expect(current.nextWeek).toBe(nextWeekAfterFill);
     expect(buttons("撤销本次合并")[0].disabled).toBe(false);
@@ -175,15 +178,20 @@ describe("issue and next-week tags", () => {
     expect(current.projects[0].bullets).toEqual(["联调"]);
 
     await act(async () => {
-      (document.querySelector('input[aria-label="选择下周计划 形态学"]') as HTMLInputElement).click();
+      (document.querySelector('input[aria-label="选择下周分区 形态学"]') as HTMLInputElement).click();
     });
     await act(async () => {
-      (document.querySelector('input[aria-label="选择下周计划 其他计划"]') as HTMLInputElement).click();
+      (document.querySelector('input[aria-label="选择下周分区 未分类"]') as HTMLInputElement).click();
     });
     await act(async () => {
       buttons("合并")[0].click();
     });
     expect(current.nextWeek).toHaveLength(1);
+    expect(current.nextWeek[0]).toMatchObject({
+      projectName: "形态学",
+      items: ["【形态学】压测", "【形态学】回归"],
+    });
+    expect(current.projects).toBe(projects);
     expect(current.projects.map((item) => item.bullets)).toEqual([["联调"], ["对账"]]);
     expect(current.issues.items.map((item) => item.text)).toEqual(["【设备】账号锁定", "需要值班手册"]);
     await act(async () => {
