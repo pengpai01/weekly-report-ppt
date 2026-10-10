@@ -226,7 +226,7 @@ describe("issue and next-week item buttons", () => {
       );
     });
     await act(async () => {
-      (document.querySelector('button[aria-label="一键总结 【设备】登录失败"]') as HTMLButtonElement).click();
+      (document.querySelector('button[aria-label="一键总结 【设备】账号锁定策略过严"]') as HTMLButtonElement).click();
     });
     expect(bodies[0]).toMatchObject({
       scope: "issueItem",

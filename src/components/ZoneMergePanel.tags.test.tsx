@@ -91,9 +91,17 @@ describe("issue and next-week tags", () => {
     expect(issueDevice.textContent).not.toContain("需要值班手册");
     expect(issuePlain.textContent).not.toContain("账号锁定");
     expect(issues.querySelector('input[placeholder="标题"]')).toBeNull();
+    expect(issues.querySelector('textarea[placeholder="标题"]')).toBeNull();
+    expect(issues.querySelector('[aria-label^="问题标题"]')).toBeNull();
+    expect(issues.querySelector('[aria-label="标题"]')).toBeNull();
+    expect(issues.querySelector('[aria-label^="标题"]')).toBeNull();
     expect(issues.querySelector('input[placeholder="项目"]')).toBeNull();
     expect(issues.textContent).not.toContain("【别的】登录失败");
     expect(plans.querySelector('input[placeholder="标题"]')).toBeNull();
+    expect(plans.querySelector('textarea[placeholder="标题"]')).toBeNull();
+    expect(plans.querySelector('[aria-label^="问题标题"]')).toBeNull();
+    expect(plans.querySelector('[aria-label="标题"]')).toBeNull();
+    expect(plans.querySelector('[aria-label^="标题"]')).toBeNull();
     expect(current.issues.items[0].title).toBe("【别的】登录失败");
     expect((plans.querySelector('[aria-label="下周项目 1"]') as HTMLInputElement).value).toBe("形态学");
     expect((plans.querySelector('[aria-label="下周项目 2"]') as HTMLInputElement).value).toBe("其他计划");

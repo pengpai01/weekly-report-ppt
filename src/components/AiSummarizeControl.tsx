@@ -206,7 +206,7 @@ export function IssueAiButton({
   item: IssueItem;
   onApply: (itemId: string, text: string) => void;
 }) {
-  const displayName = item.title?.trim() || item.text.trim() || "未命名问题";
+  const displayName = item.text.trim() || "未命名问题";
   return (
     <SummarizeButton
       ariaLabel={`一键总结 ${displayName}`}
