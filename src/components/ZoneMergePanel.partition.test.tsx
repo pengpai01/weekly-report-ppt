@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import type { ZoneSnapshot } from "../lib/zoneMerge";
@@ -64,6 +64,14 @@ afterEach(async () => {
   root = undefined;
   host = undefined;
 });
+
+async function expand(label: string) {
+  const button = document.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement | null;
+  if (!button) throw new Error(`missing ${label}`);
+  await act(async () => {
+    button.click();
+  });
+}
 
 function buttons(text: string, scope: ParentNode = document) {
   return [...scope.querySelectorAll("button")].filter((node) => node.textContent?.trim() === text) as HTMLButtonElement[];
@@ -183,6 +191,8 @@ describe("partition headers", () => {
     expect(current.projects).toBe(projects);
 
     expect(issues.querySelector("textarea.next-week-body")).toBeNull();
+    expect(plans.querySelector("textarea.next-week-body")).toBeNull();
+    await expand("展开下周分组 未分类");
     expect(plans.querySelector("textarea.next-week-body")).not.toBeNull();
     expect(document.querySelector("textarea.project-bullets-input")).toBeNull();
     expect(plans.querySelector(".issue-partition-body .project-head")).toBeNull();
@@ -223,6 +233,12 @@ describe("partition headers", () => {
     });
     const issues = document.getElementById("merge-zone-issues") as HTMLElement;
     const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
+    expect(issues.querySelector("textarea")).toBeNull();
+    expect(plans.querySelector("textarea")).toBeNull();
+    await expand("展开问题分组 设备");
+    await expand("展开问题分组 形态学");
+    await expand("展开下周分组 形态学");
+    await expand("展开下周分组 未分类");
     const device = issues.querySelector('[aria-label="问题分组 设备"]') as HTMLElement;
     const deviceBody = device.querySelector("textarea") as HTMLTextAreaElement;
     expect(issues.querySelectorAll("textarea")).toHaveLength(2);
@@ -301,5 +317,95 @@ describe("partition headers", () => {
     expect(current.nextWeek.map((row) => ({ id: row.id, projectName: row.projectName, items: row.items }))).toEqual(beforePlans);
     expect(current.issues.items.map((item) => item.text)).toEqual(beforeIssues.map((item) => item.text));
     expect(current.projects).toBe(projects);
+  });
+});
+
+describe("zones default collapsed", () => {
+  it("starts collapsed, leaves new rows collapsed, and drops expand state on re-entry", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    let value: ZoneSnapshot = {
+      projects: [{ id: "p1", name: "设备管理", bullets: ["联调"] }],
+      issues: { empty: false, items: [{ id: "i1", text: "【设备】账号锁定" }] },
+      nextWeek: [{ id: "n1", projectName: "形态学", items: ["【形态学】压测"] }],
+    };
+
+    function Host() {
+      const [currentValue, setCurrentValue] = useState(value);
+      const [resetKey, setResetKey] = useState("enter");
+      return (
+        <>
+          <button type="button" onClick={() => setResetKey("again")}>
+            重新进入
+          </button>
+          <ZoneMergePanel
+            resetKey={resetKey}
+            value={currentValue}
+            onChange={(next) => {
+              value = next;
+              setCurrentValue(next);
+            }}
+          />
+        </>
+      );
+    }
+
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(<Host />);
+    });
+
+    expect(document.querySelector('button[aria-label="展开 设备管理"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('button[aria-label="展开问题分组 设备"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('button[aria-label="展开下周分组 形态学"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(document.body.textContent).not.toContain("只能合并同一分区。至少选择 2 条");
+
+    await expand("展开 设备管理");
+    expect(document.querySelector("textarea.project-bullets-input")).not.toBeNull();
+    await expand("收起 设备管理");
+    expect(document.querySelector("textarea")).toBeNull();
+
+    const projectsBeforeAdd = value.projects;
+    await act(async () => {
+      buttons("添加一条")[0].click();
+    });
+    expect(value.projects).toBe(projectsBeforeAdd);
+    expect(document.querySelector('button[aria-label="展开问题分组 未分类"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById("merge-zone-issues")?.querySelector("textarea")).toBeNull();
+
+    await act(async () => {
+      buttons("添加一行")[0].click();
+    });
+    expect(value.projects).toBe(projectsBeforeAdd);
+    expect(document.querySelector('button[aria-label="展开下周分组 未分类"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById("merge-zone-nextWeek")?.querySelector("textarea")).toBeNull();
+
+    await act(async () => {
+      buttons("添加项目")[0].click();
+    });
+    expect(document.querySelector('button[aria-label="展开 未命名项目"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("textarea.project-bullets-input")).toBeNull();
+
+    const projectsBeforeCarry = value.projects;
+    await act(async () => {
+      buttons("从重要事项带入项目名")[0].click();
+    });
+    expect(value.projects).toBe(projectsBeforeCarry);
+    expect(value.nextWeek.some((row) => row.projectName === "设备管理")).toBe(true);
+    expect(document.querySelectorAll('#merge-zone-nextWeek button[aria-expanded="true"]')).toHaveLength(0);
+    expect(document.getElementById("merge-zone-nextWeek")?.querySelector("textarea")).toBeNull();
+
+    await expand("展开问题分组 设备");
+    expect(document.querySelector("#merge-zone-issues textarea")).not.toBeNull();
+    await act(async () => {
+      buttons("重新进入")[0].click();
+    });
+    expect(document.querySelector('button[aria-label="展开问题分组 设备"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('button[aria-label="展开 设备管理"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("textarea")).toBeNull();
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
   });
 });

@@ -64,6 +64,14 @@ function titleEditorHits(root: ParentNode): string[] {
   return hits;
 }
 
+async function expand(label: string) {
+  const button = document.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement | null;
+  if (!button) throw new Error(`missing ${label}`);
+  await act(async () => {
+    button.click();
+  });
+}
+
 function buttons(text: string, scope: ParentNode = document) {
   return [...scope.querySelectorAll("button")].filter((node) => node.textContent?.trim() === text) as HTMLButtonElement[];
 }
@@ -162,6 +170,8 @@ describe("issue and next-week title editors stay gone", () => {
       "仅旧标题",
     );
     expect(current.issues.items.map((item) => item.title)).toEqual(["【别的】旧标题", "仅旧标题"]);
+    await expand("展开问题分组 设备");
+    await expand("展开问题分组 未分类");
     expect((issues.querySelector('[aria-label="问题分组 设备"] textarea') as HTMLTextAreaElement | null)?.value).toBe(
       "【设备】账号锁定",
     );
@@ -217,12 +227,15 @@ describe("issue and next-week title editors stay gone", () => {
     expect(current.issues.items[0]?.title).toBe("【别的】旧标题");
     expect(current.projects).toBe(projects);
 
+    await expand("展开问题分组 未分类");
     await act(async () => {
       setControl(
         issuesZone().querySelector('textarea[aria-label="问题内容 2"]') as HTMLTextAreaElement,
         "【形态学】补日志",
       );
     });
+    await expand("展开问题分组 形态学");
+    await expand("展开问题分组 设备");
     const editedIssue = current.issues.items.find((item) => item.id === addedIssue?.id);
     expect(editedIssue).toEqual({ id: addedIssue?.id, text: "【形态学】补日志" });
     expect(editedIssue).not.toHaveProperty("title");
@@ -235,6 +248,7 @@ describe("issue and next-week title editors stay gone", () => {
     expect(current.projects).toBe(projects);
     expect(titleEditorHits(issuesZone())).toEqual([]);
 
+    await expand("展开下周分组 未分类");
     await act(async () => {
       setControl(
         plansZone().querySelectorAll("textarea")[1] as HTMLTextAreaElement,
@@ -248,8 +262,10 @@ describe("issue and next-week title editors stay gone", () => {
     expect(current.nextWeek.find((row) => row.id === addedPlan?.id)).not.toHaveProperty("title");
     expect(current.nextWeek.find((row) => row.id === "n-old")?.projectName).toBe("已有计划");
     expect(plansZone().querySelector('[aria-label="下周分组 采购"]')).not.toBeNull();
+    expect(plansZone().querySelector('[aria-label="下周分组 采购"] textarea')).toBeNull();
     expect(current.projects).toBe(projects);
 
+    await expand("展开下周分组 采购");
     await act(async () => {
       setControl(plansZone().querySelector('[aria-label="下周分组 采购"] textarea') as HTMLTextAreaElement, "没有括号");
     });
@@ -306,7 +322,17 @@ describe("issue and next-week title editors stay gone", () => {
     expect(current.nextWeek).toEqual([{ id: expect.any(String), projectName: "", items: [""] }]);
     expect(current.nextWeek[0]).not.toHaveProperty("title");
     expect(current.projects).toEqual([]);
+    expect(issuesZone().querySelector("textarea")).toBeNull();
+    expect(plansZone().querySelector("textarea")).toBeNull();
+    expect(issuesZone().querySelector('button[aria-label="展开问题分组 未分类"]')?.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    expect(plansZone().querySelector('button[aria-label="展开下周分组 未分类"]')?.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
 
+    await expand("展开问题分组 未分类");
+    await expand("展开下周分组 未分类");
     await act(async () => {
       setControl(issuesZone().querySelector("textarea") as HTMLTextAreaElement, "【设备】需要手册");
     });
@@ -344,6 +370,8 @@ describe("issue and next-week title editors stay gone", () => {
     });
     expect(current.issues.empty).toBe(false);
     expect(current.issues.items[0]?.title).toBe("隐藏标题");
+    expect(issuesZone().querySelector("textarea")).toBeNull();
+    await expand("展开问题分组 设备");
     expect((issuesZone().querySelector("textarea") as HTMLTextAreaElement | null)?.value).toBe("【设备】不会画出来");
     expect(issuesZone().querySelector('[aria-label="问题分组 设备"]')).not.toBeNull();
     expect(issuesZone().textContent).not.toContain("隐藏标题");

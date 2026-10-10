@@ -164,6 +164,9 @@ describe("project delete undo", () => {
     expect(document.body.textContent).toContain("暂无重要事项");
     expect(document.getElementById("merge-zone-projects")?.querySelector('input[placeholder="项目名称 *"]')).toBeNull();
     expect(document.body.textContent).not.toContain("未命名项目");
+    await act(async () => {
+      (document.querySelector('button[aria-label="展开问题分组 未分类"]') as HTMLButtonElement).click();
+    });
     expect(document.body.textContent).toContain("登录失败");
 
     await clickButton("撤销本次合并");
@@ -208,6 +211,12 @@ describe("project delete undo", () => {
 
     const issues = document.getElementById("merge-zone-issues") as HTMLElement;
     const plans = document.getElementById("merge-zone-nextWeek") as HTMLElement;
+    await act(async () => {
+      (document.querySelector('button[aria-label="展开问题分组 未分类"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (document.querySelector('button[aria-label="展开下周分组 未分类"]') as HTMLButtonElement).click();
+    });
     expect(issues.querySelector(".issue-partition-body input")).toBeNull();
     expect(issues.querySelector(".issue-partition-body .row-menu")).toBeNull();
     expect(issues.querySelector(".partition-item-actions")).toBeNull();

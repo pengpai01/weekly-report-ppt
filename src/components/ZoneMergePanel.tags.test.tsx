@@ -69,6 +69,14 @@ function buttons(text: string, scope: ParentNode = document) {
   return [...scope.querySelectorAll("button")].filter((node) => node.textContent?.trim() === text) as HTMLButtonElement[];
 }
 
+async function expand(label: string) {
+  const button = document.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement | null;
+  if (!button) throw new Error(`missing ${label}`);
+  await act(async () => {
+    button.click();
+  });
+}
+
 function setControl(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
@@ -87,6 +95,12 @@ describe("issue and next-week tags", () => {
     expect((issueDevice.querySelector(".issue-partition-name") as HTMLInputElement).placeholder).toBe("项目名称 *");
     expect(issueDevice.querySelector(".issue-partition-count")?.textContent).toBe("1 条");
     expect(issueDevice.querySelector(".zone-item-tag")).toBeNull();
+    expect(issueDevice.querySelector("textarea")).toBeNull();
+    expect(issuePlain.querySelector("textarea")).toBeNull();
+    await expand("展开问题分组 设备");
+    await expand("展开问题分组 未分类");
+    await expand("展开下周分组 形态学");
+    await expand("展开下周分组 未分类");
     expect(issueDevice.querySelector("textarea")?.value).toBe("【设备】账号锁定");
     expect(issuePlain.querySelector("textarea")?.value).toBe("需要值班手册");
     expect(issueDevice.textContent).not.toContain("需要值班手册");

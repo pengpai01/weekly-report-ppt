@@ -134,10 +134,11 @@ export function ZoneMergePanel({
   const [undo, setUndo] = useState<ZoneSnapshot[]>([]);
   const [error, setError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  // Session-only. Not written to the draft, localStorage, or the URL.
+  // Session-only open sets. Empty means collapsed, including rows added later in the session.
+  // Not written to the draft, localStorage, or the URL. resetKey clears them.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [collapsedIssueTags, setCollapsedIssueTags] = useState<ReadonlySet<string>>(() => new Set());
-  const [collapsedPlanTags, setCollapsedPlanTags] = useState<ReadonlySet<string>>(() => new Set());
+  const [openIssueTags, setOpenIssueTags] = useState<ReadonlySet<string>>(() => new Set());
+  const [openPlanTags, setOpenPlanTags] = useState<ReadonlySet<string>>(() => new Set());
   const [partitionSel, setPartitionSel] = useState<PartitionSelection>(EMPTY_PARTITION_SELECTION);
   const seededNextWeekIds = useRef(new Set<string>());
 
@@ -147,8 +148,8 @@ export function ZoneMergePanel({
     setError("");
     setPendingDeleteId(null);
     setOpenProjectIds(new Set());
-    setCollapsedIssueTags(new Set());
-    setCollapsedPlanTags(new Set());
+    setOpenIssueTags(new Set());
+    setOpenPlanTags(new Set());
     setPartitionSel(EMPTY_PARTITION_SELECTION);
     seededNextWeekIds.current.clear();
   }, [resetKey]);
@@ -189,8 +190,11 @@ export function ZoneMergePanel({
     });
   };
 
-  const toggleIssueTag = (tag: string) => {
-    setCollapsedIssueTags((current) => {
+  const toggleOpenTag = (
+    setOpenTags: (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => void,
+    tag: string,
+  ) => {
+    setOpenTags((current) => {
       const next = new Set(current);
       if (next.has(tag)) next.delete(tag);
       else next.add(tag);
@@ -327,18 +331,18 @@ export function ZoneMergePanel({
   };
 
   const rememberPartitionTag = (
-    collapsed: ReadonlySet<string>,
+    openTags: ReadonlySet<string>,
     selection: PartitionSelection,
     zone: PartitionZone,
     from: string,
     to: string,
   ) => {
-    if (collapsed.has(from)) {
-      const next = new Set(collapsed);
+    if (openTags.has(from)) {
+      const next = new Set(openTags);
       next.delete(from);
       next.add(to);
-      if (zone === "issues") setCollapsedIssueTags(next);
-      else setCollapsedPlanTags(next);
+      if (zone === "issues") setOpenIssueTags(next);
+      else setOpenPlanTags(next);
     }
     if (selection.zone === zone && selection.tags.includes(from)) {
       const tags = [...new Set(selection.tags.map((tag) => (tag === from ? to : tag)))];
@@ -354,7 +358,7 @@ export function ZoneMergePanel({
     const to = normalizePartitionName(raw);
     const items = renameIssuePartition(value.issues.items, from, to);
     if (items === value.issues.items) return;
-    rememberPartitionTag(collapsedIssueTags, partitionSel, "issues", from, to);
+    rememberPartitionTag(openIssueTags, partitionSel, "issues", from, to);
     onChange({ ...value, projects: value.projects, issues: { ...value.issues, items } });
   };
 
@@ -362,7 +366,7 @@ export function ZoneMergePanel({
     const to = normalizePartitionName(raw);
     const nextWeek = renameNextWeekPartition(value.nextWeek, from, to);
     if (nextWeek === value.nextWeek) return;
-    rememberPartitionTag(collapsedPlanTags, partitionSel, "nextWeek", from, to);
+    rememberPartitionTag(openPlanTags, partitionSel, "nextWeek", from, to);
     onChange({ ...value, projects: value.projects, nextWeek });
   };
 
@@ -386,7 +390,7 @@ export function ZoneMergePanel({
       ? `已选 ${partitionSel.tags.length} 个分区（${partitionZoneName}）。标题取较长名称，等长取主项。正文按顺序拼进同一条。`
       : selection.ids.length >= 2
         ? `已选 ${selection.ids.length} 条（${zoneName}）。标题取较长名称，等长取主项。`
-        : "只能合并同一分区。至少选择 2 条后点「合并」。标题取较长名称，等长取主项（默认先勾选）。正文按勾选顺序拼接，每行前加 [状态·负责人]。入库前可撤销本次合并。";
+        : "";
 
   const selected = new Set(selection.ids);
   const activeZone = selection.zone;
@@ -396,7 +400,11 @@ export function ZoneMergePanel({
   return (
     <div className={`merge-panel${scrollable ? " merge-panel-scroll" : ""}`}>
       <div className="merge-toolbar">
-        <p className={error ? "error merge-status" : "hint merge-status"}>{statusText}</p>
+        {statusText ? (
+          <p className={error ? "error merge-status" : "hint merge-status"}>{statusText}</p>
+        ) : (
+          <span className="merge-status" />
+        )}
         <div className="inline-actions">
           <button
             className="btn btn-primary btn-sm"
@@ -585,7 +593,7 @@ export function ZoneMergePanel({
         ) : (
           <div className="zone-tag-groups">
             {groupByDisplayTag(issueItems, issueDisplayTag).map((group, groupIndex) => {
-              const open = !collapsedIssueTags.has(group.tag);
+              const open = openIssueTags.has(group.tag);
               const partitionChecked = partitionSel.zone === "issues" && partitionSel.tags.includes(group.tag);
               return (
               <section
@@ -617,7 +625,7 @@ export function ZoneMergePanel({
                     className="btn btn-ghost btn-sm"
                     aria-expanded={open}
                     aria-label={`${open ? "收起" : "展开"}问题分组 ${group.tag}`}
-                    onClick={() => toggleIssueTag(group.tag)}
+                    onClick={() => toggleOpenTag(setOpenIssueTags, group.tag)}
                   >
                     {open ? "收起" : "展开"}
                   </button>
@@ -693,7 +701,7 @@ export function ZoneMergePanel({
         ) : (
           <div className="zone-tag-groups">
             {groupByDisplayTag(planRows, nextWeekDisplayTag).map((group, groupIndex) => {
-              const open = !collapsedPlanTags.has(group.tag);
+              const open = openPlanTags.has(group.tag);
               const partitionChecked = partitionSel.zone === "nextWeek" && partitionSel.tags.includes(group.tag);
               return (
               <section
@@ -725,14 +733,7 @@ export function ZoneMergePanel({
                     className="btn btn-ghost btn-sm"
                     aria-expanded={open}
                     aria-label={`${open ? "收起" : "展开"}下周分组 ${group.tag}`}
-                    onClick={() => {
-                      setCollapsedPlanTags((current) => {
-                        const next = new Set(current);
-                        if (next.has(group.tag)) next.delete(group.tag);
-                        else next.add(group.tag);
-                        return next;
-                      });
-                    }}
+                    onClick={() => toggleOpenTag(setOpenPlanTags, group.tag)}
                   >
                     {open ? "收起" : "展开"}
                   </button>
