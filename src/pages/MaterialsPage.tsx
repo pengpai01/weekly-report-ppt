@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppHeader, Stepper } from "../components/AppHeader";
-import { AiSummarizeControl } from "../components/AiSummarizeControl";
 import { CoverImageSlots } from "../components/CoverImageSlots";
 import { ReportGate } from "../components/ReportGate";
 import { ZoneMergePanel } from "../components/ZoneMergePanel";
@@ -66,7 +65,7 @@ function MaterialsForm({ report }: { report: Report }) {
         <div className="panel">
           <h2>录入素材</h2>
           <p className="hint">
-            按项目填写进展要点。展开后在一个文本框里编辑，每行一条，空行不写入草稿。勾选同一分区内至少 2 条可合并，合并后仍可编辑。删除项目会同时去掉其下全部要点；撤销本次合并只在本页，也可恢复刚删除的项目及其条目，不另请求接口。当前内容随草稿保存。问题可留空（将生成 N/A 页）。
+            按项目填写进展要点。展开后在一个文本框里编辑，每行一条，空行不写入草稿。勾选同一分区内至少 2 条可合并，合并后仍可编辑。删除项目会同时去掉其下全部要点；撤销本次合并只在本页，也可恢复刚删除的项目及其条目，不另请求接口。当前内容随草稿保存。问题可留空（将生成 N/A 页）。问题与下周计划按条目里第一对【】在本分区内分组显示，没有则归入未分类，原文不改，也不会写入重要事项。
           </p>
           {error ? <div className="error">{error}</div> : null}
           {dupes.length ? (
@@ -95,23 +94,6 @@ function MaterialsForm({ report }: { report: Report }) {
               从文本一键拆分
             </button>
           </div>
-
-          <AiSummarizeControl
-            value={{
-              projects: report.projects,
-              issues: report.issues,
-              nextWeek: report.nextWeek,
-            }}
-            onApply={(next) => {
-              update((current) => ({
-                ...current,
-                projects: next.projects,
-                issues: next.issues,
-                nextWeek: next.nextWeek,
-              }));
-              setZoneEpoch((n) => n + 1);
-            }}
-          />
 
           <ZoneMergePanel
             resetKey={`${report.id}:${zoneEpoch}`}

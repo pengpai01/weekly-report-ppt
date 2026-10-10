@@ -277,11 +277,19 @@ export type AiSummaryResponse = {
   materials: ZoneSnapshot;
 };
 
+export type AiTarget = { projectId?: string; itemId?: string };
+
 /** POST /api/ai/summarize. The browser sends materials only — never an API key. */
-export function requestAiSummary(materials: ZoneSnapshot, scope: AiScope = "page") {
+export function requestAiSummary(materials: ZoneSnapshot, scope: AiScope = "page", target?: AiTarget) {
+  const payload: { scope: AiScope; materials: ZoneSnapshot; projectId?: string; itemId?: string } = {
+    scope,
+    materials,
+  };
+  if (scope === "project" && target?.projectId) payload.projectId = target.projectId;
+  if ((scope === "issueItem" || scope === "nextWeekItem") && target?.itemId) payload.itemId = target.itemId;
   return request<AiSummaryResponse>("/api/ai/summarize", {
     method: "POST",
-    body: JSON.stringify({ scope, materials }),
+    body: JSON.stringify(payload),
   });
 }
 

@@ -88,6 +88,7 @@ describe("project delete undo", () => {
       "上移",
       "下移",
       "展开",
+      "一键总结",
     ]);
     expect(head.querySelector(":scope > .btn-danger")).toBeNull();
 
@@ -110,9 +111,10 @@ describe("project delete undo", () => {
     await act(async () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
-    expect(document.body.textContent).toContain("联调");
     const bullets = projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement;
     expect(bullets.value).toBe("联调\n上线");
+    expect(projectCard("设备管理").querySelector(".bullet-move-row")).toBeNull();
+    expect(projectCard("设备管理").textContent).not.toContain("移到其他项目");
     expect(projectCard("设备管理").querySelector(".bullet-row")).toBeNull();
     expect(projectCard("设备管理").textContent).not.toContain("删除要点");
 
@@ -134,8 +136,9 @@ describe("project delete undo", () => {
     await act(async () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
-    expect(document.body.textContent).toContain("联调");
-    expect(document.body.textContent).toContain("上线");
+    expect((projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement).value).toBe(
+      "联调\n上线",
+    );
     expect(buttons("撤销本次合并")[0].disabled).toBe(true);
   });
 
@@ -168,9 +171,15 @@ describe("project delete undo", () => {
     await act(async () => {
       (document.querySelector('button[aria-label="展开 设备管理"]') as HTMLButtonElement).click();
     });
-    expect(document.body.textContent).toContain("联调");
-    expect(document.body.textContent).toContain("上线");
-    expect(document.body.textContent).toContain("对账");
+    expect((projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement).value).toContain(
+      "联调",
+    );
+    expect((projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement).value).toContain(
+      "上线",
+    );
+    expect((projectCard("设备管理").querySelector("textarea.project-bullets-input") as HTMLTextAreaElement).value).toContain(
+      "对账",
+    );
 
     await clickButton("撤销本次合并");
     expect(document.querySelector('button[aria-label="展开 设备管理"]')).not.toBeNull();

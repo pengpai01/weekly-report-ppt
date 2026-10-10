@@ -29,6 +29,9 @@ describe("shared merge preview", () => {
     expect(html).not.toContain("进展要点");
     expect(html).toContain("上移");
     expect(html).toContain("下移");
+    expect(html).toContain("一键总结");
+    expect(html).toContain("未分类");
+    expect(html).not.toContain("移到其他项目");
     expect(html).toContain("登录失败");
     expect(html).toContain('disabled=""');
   });
@@ -74,6 +77,7 @@ describe("shared merge preview", () => {
     expect(html).toContain("添加项目");
     expect(html).toContain("暂无重要事项");
     expect(html).not.toContain("未命名项目");
+    expect(html).not.toContain("一键总结");
     expect(html).not.toContain("删除项目");
     expect(html).not.toContain('placeholder="项目名称 *"');
   });

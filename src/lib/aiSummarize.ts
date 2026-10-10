@@ -7,7 +7,7 @@ export const AI_TITLE_MAX = 24;
 export const AI_BULLET_MAX = 60;
 export const AI_PROGRESS_BULLETS_MAX = 5;
 
-export type AiScope = "page" | "projects" | "issues" | "nextWeek";
+export type AiScope = "page" | "projects" | "issues" | "nextWeek" | "project" | "issueItem" | "nextWeekItem";
 
 export type AiDiffField = {
   label: string;
@@ -106,8 +106,84 @@ function byId<T extends { id: string }>(items: T[]): Map<string, T> {
   return new Map(items.map((item) => [item.id, item]));
 }
 
-/** Copy summarized titles and bullets onto the current draft. Other zones stay put. */
-export function applyAiText(current: ZoneSnapshot, proposed: ZoneSnapshot, scope: AiScope): ZoneSnapshot {
+/** Bullets only. The project name and every other row stay as they are. */
+function applyProjectBulletsOnly(current: Project, proposed: Project | undefined): Project {
+  if (!proposed) return current;
+  const source = nonEmpty(current.bullets);
+  if (!source.length || !Array.isArray(proposed.bullets)) return current;
+  const cap = Math.min(AI_PROGRESS_BULLETS_MAX, source.length);
+  const bullets = proposed.bullets
+    .map((line) => clipAiText(line, AI_BULLET_MAX))
+    .filter(Boolean)
+    .slice(0, cap);
+  if (!bullets.length) return current;
+  const changed =
+    bullets.length !== current.bullets.length || bullets.some((line, index) => line !== current.bullets[index]);
+  if (!changed) return current;
+  return clearLineMeta({ ...current, bullets });
+}
+
+/** Issue body only. The title is not a rename target. */
+function applyIssueBody(current: IssueItem, proposed: IssueItem | undefined): IssueItem {
+  if (!proposed || !current.text.trim()) return current;
+  const text = clipAiText(proposed.text, AI_BULLET_MAX);
+  if (!text || text === current.text) return current;
+  return clearLineMeta({ ...current, text });
+}
+
+/** Plan lines only. projectName stays. */
+function applyNextItemsOnly(current: NextWeekRow, proposed: NextWeekRow | undefined): NextWeekRow {
+  if (!proposed) return current;
+  const source = nonEmpty(current.items);
+  if (!source.length || !Array.isArray(proposed.items)) return current;
+  const items = proposed.items
+    .map((line) => clipAiText(line, AI_BULLET_MAX))
+    .filter(Boolean)
+    .slice(0, source.length);
+  if (!items.length) return current;
+  const changed =
+    items.length !== current.items.length || items.some((line, index) => line !== current.items[index]);
+  if (!changed) return current;
+  return clearLineMeta({ ...current, items });
+}
+
+/** Copy summarized text onto the current draft. Item scopes touch one row; other zones stay put. */
+export function applyAiText(
+  current: ZoneSnapshot,
+  proposed: ZoneSnapshot,
+  scope: AiScope,
+  targetId = "",
+): ZoneSnapshot {
+  if (scope === "project") {
+    return {
+      projects: current.projects.map((item) =>
+        item.id === targetId ? applyProjectBulletsOnly(item, byId(proposed.projects).get(item.id)) : item,
+      ),
+      issues: current.issues,
+      nextWeek: current.nextWeek,
+    };
+  }
+  if (scope === "issueItem") {
+    return {
+      projects: current.projects,
+      issues: {
+        empty: current.issues.empty,
+        items: current.issues.items.map((item) =>
+          item.id === targetId ? applyIssueBody(item, byId(proposed.issues.items).get(item.id)) : item,
+        ),
+      },
+      nextWeek: current.nextWeek,
+    };
+  }
+  if (scope === "nextWeekItem") {
+    return {
+      projects: current.projects,
+      issues: current.issues,
+      nextWeek: current.nextWeek.map((item) =>
+        item.id === targetId ? applyNextItemsOnly(item, byId(proposed.nextWeek).get(item.id)) : item,
+      ),
+    };
+  }
   const projects =
     scope === "page" || scope === "projects"
       ? current.projects.map((item) => applyProject(item, byId(proposed.projects).get(item.id)))
@@ -153,9 +229,10 @@ export function commitAiPreview(
   current: ZoneSnapshot,
   preview: ZoneSnapshot | null,
   scope: AiScope,
+  targetId = "",
 ): ZoneSnapshot | null {
   if (!confirmed || !preview) return null;
-  const next = applyAiText(current, preview, scope);
+  const next = applyAiText(current, preview, scope, targetId);
   if (!aiTextChanged(current, next)) return null;
   return next;
 }

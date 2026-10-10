@@ -1,19 +1,16 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { aiErrorMessage, requestAiSummary } from "../lib/api";
-import {
-  applyAiText,
-  buildAiDiff,
-  commitAiPreview,
-  type AiScope,
-} from "../lib/aiSummarize";
+import { applyAiText, buildAiDiff, commitAiPreview, type AiScope } from "../lib/aiSummarize";
 import type { ZoneSnapshot } from "../lib/zoneMerge";
+import type { IssueItem, NextWeekRow, Project } from "../types";
 
-const SCOPES: { value: AiScope; label: string }[] = [
-  { value: "page", label: "整页" },
-  { value: "projects", label: "重要事项" },
-  { value: "issues", label: "存在问题与建议" },
-  { value: "nextWeek", label: "下周工作计划" },
-];
+type PreviewState = {
+  zone: string;
+  heading: string;
+  before: string;
+  after: string;
+  apply: () => void;
+};
 
 function isMaterials(value: unknown): value is ZoneSnapshot {
   if (!value || typeof value !== "object") return false;
@@ -28,134 +25,109 @@ function isMaterials(value: unknown): value is ZoneSnapshot {
 }
 
 /**
- * One-click summarize for the materials page.
- * The preview stays in component state. Cancel, undo, and any API failure
- * do not call onApply, so the draft and the database stay unchanged.
+ * Confirm is the only path that calls onApply. Cancel, undo, and any API
+ * failure leave the draft alone. The button disables itself while the request
+ * is in flight.
  */
-export function AiSummarizeControl({
-  value,
-  onApply,
+function SummarizeButton({
+  ariaLabel,
+  hint,
+  previewTitle,
+  run,
 }: {
-  value: ZoneSnapshot;
-  onApply: (next: ZoneSnapshot) => void;
+  ariaLabel: string;
+  hint: string;
+  previewTitle: string;
+  run: () => Promise<PreviewState | "same" | "empty">;
 }) {
-  const [scope, setScope] = useState<AiScope>("page");
+  const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<ZoneSnapshot | null>(null);
-  const [previewScope, setPreviewScope] = useState<AiScope>("page");
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const running = useRef(false);
 
-  const discard = () => {
-    setPreview(null);
-  };
+  const discard = () => setPreview(null);
 
-  const run = async () => {
+  const start = async () => {
+    if (running.current) return;
+    running.current = true;
     setError("");
     setPreview(null);
     setBusy(true);
     try {
-      const result = await requestAiSummary(value, scope);
-      if (!isMaterials(result?.materials)) {
+      const next = await run();
+      if (next === "empty") {
         setError("AI 没有返回可用总结，原文未改动。");
         return;
       }
-      const drafted = applyAiText(value, result.materials, scope);
-      if (!commitAiPreview(true, value, result.materials, scope)) {
+      if (next === "same") {
         setError("总结结果与原文一致，原文未改动。");
         return;
       }
-      setPreviewScope(scope);
-      setPreview(drafted);
+      setPreview(next);
     } catch (err) {
       setPreview(null);
       setError(aiErrorMessage(err));
     } finally {
+      running.current = false;
       setBusy(false);
     }
   };
 
   const confirm = () => {
-    const next = commitAiPreview(true, value, preview, previewScope);
+    const pending = preview;
     setPreview(null);
-    if (!next) return;
-    onApply(next);
+    pending?.apply();
   };
 
-  const drafted = preview;
-  const diff = drafted ? buildAiDiff(value, drafted) : [];
-
   return (
-    <div className="ai-summarize">
-      <p className="hint ai-hint">
-        总结并压缩标题与要点。默认整页，也可只处理一个分区。确认前不会写入草稿。
-      </p>
-      <div className="inline-actions">
-        <label className="ai-scope-label">
-          总结范围
-          <select
-            className="ai-scope"
-            aria-label="总结范围"
-            value={scope}
-            disabled={busy}
-            onChange={(event) => setScope(event.target.value as AiScope)}
-          >
-            {SCOPES.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          className="btn btn-dark btn-sm"
-          disabled={busy}
-          title="总结标题和要点。确认前不会写入草稿。"
-          onClick={() => void run()}
-        >
-          {busy ? "正在总结…" : "一键总结"}
-        </button>
-      </div>
+    <>
+      <button
+        type="button"
+        className="btn btn-dark btn-sm project-summarize"
+        disabled={busy}
+        aria-busy={busy}
+        aria-label={ariaLabel}
+        title={hint}
+        onClick={() => void start()}
+      >
+        {busy ? "正在总结…" : "一键总结"}
+      </button>
       {error ? (
-        <div className="error ai-error" role="alert">
+        <div className="error ai-error ai-row-error" role="alert">
           {error}
         </div>
       ) : null}
-
-      {drafted ? (
+      {preview ? (
         <div className="overlay" onClick={discard}>
           <div
             className="modal ai-modal"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="ai-summary-title"
+            aria-labelledby={titleId}
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 id="ai-summary-title">一键总结预览</h3>
+            <h3 id={titleId}>{previewTitle}</h3>
             <p className="hint">
-              标题不超过 24 字，要点不超过 60 字，每个项目的进展要点不超过 5 条。撤销或取消都不会改动原文，也不会写入数据库。
+              {hint} 撤销或取消都不会改动原文，也不会写入数据库。
             </p>
             <div className="ai-diff">
-              {diff.map((entry) => (
-                <article key={entry.key} className="ai-diff-item">
-                  <div className="ai-diff-kicker">
-                    {entry.zone} · {entry.heading}
+              <article className="ai-diff-item">
+                <div className="ai-diff-kicker">
+                  {preview.zone} · {preview.heading}
+                </div>
+                <div className="ai-diff-line">
+                  <div className="ai-diff-label">要点</div>
+                  <div>
+                    <span className="ai-diff-tag">原文</span>
+                    <span className="ai-before">{preview.before || "（空）"}</span>
                   </div>
-                  {entry.fields.map((field) => (
-                    <div key={field.label} className="ai-diff-line">
-                      <div className="ai-diff-label">{field.label}</div>
-                      <div>
-                        <span className="ai-diff-tag">原文</span>
-                        <span className="ai-before">{field.before || "（空）"}</span>
-                      </div>
-                      <div>
-                        <span className="ai-diff-tag">总结</span>
-                        <span className="ai-after">{field.after || "（空）"}</span>
-                      </div>
-                    </div>
-                  ))}
-                </article>
-              ))}
+                  <div>
+                    <span className="ai-diff-tag">总结</span>
+                    <span className="ai-after">{preview.after || "（空）"}</span>
+                  </div>
+                </div>
+              </article>
             </div>
             <div className="footer-bar">
               <button type="button" className="btn btn-ghost" onClick={discard}>
@@ -173,6 +145,126 @@ export function AiSummarizeControl({
           </div>
         </div>
       ) : null}
-    </div>
+    </>
+  );
+}
+
+function changedField(before: ZoneSnapshot, after: ZoneSnapshot, scope: AiScope, targetId: string) {
+  const drafted = applyAiText(before, after, scope, targetId);
+  if (!commitAiPreview(true, before, after, scope, targetId)) return null;
+  const diff = buildAiDiff(before, drafted);
+  const field = diff.flatMap((entry) => entry.fields).find((item) => item.label === "要点");
+  if (!field) return null;
+  return { drafted, before: field.before, after: field.after, heading: diff[0]?.heading ?? "" };
+}
+
+async function requestScoped(materials: ZoneSnapshot, scope: AiScope, target: { projectId?: string; itemId?: string }) {
+  const result = await requestAiSummary(materials, scope, target);
+  if (!isMaterials(result?.materials)) return null;
+  return result.materials;
+}
+
+export function ProjectAiButton({
+  project,
+  onApply,
+}: {
+  project: Project;
+  onApply: (projectId: string, bullets: string[]) => void;
+}) {
+  const displayName = project.name.trim() || "未命名项目";
+  return (
+    <SummarizeButton
+      ariaLabel={`一键总结 ${displayName}`}
+      previewTitle="一键总结预览"
+      hint="只覆盖这个项目的要点。标题、其他项目、问题和下周计划都不会改。确认前不会写入草稿。"
+      run={async () => {
+        const current: ZoneSnapshot = {
+          projects: [project],
+          issues: { empty: true, items: [] },
+          nextWeek: [],
+        };
+        const proposed = await requestScoped(current, "project", { projectId: project.id });
+        if (!proposed) return "empty";
+        const changed = changedField(current, proposed, "project", project.id);
+        if (!changed) return "same";
+        return {
+          zone: "重要事项",
+          heading: changed.heading || displayName,
+          before: changed.before,
+          after: changed.after,
+          apply: () => onApply(project.id, changed.drafted.projects[0].bullets),
+        };
+      }}
+    />
+  );
+}
+
+export function IssueAiButton({
+  item,
+  onApply,
+}: {
+  item: IssueItem;
+  onApply: (itemId: string, text: string) => void;
+}) {
+  const displayName = item.title?.trim() || item.text.trim() || "未命名问题";
+  return (
+    <SummarizeButton
+      ariaLabel={`一键总结 ${displayName}`}
+      previewTitle="一键总结预览"
+      hint="只覆盖这一条问题的正文。标题、其他问题、重要事项和下周计划都不会改。确认前不会写入草稿。"
+      run={async () => {
+        const current: ZoneSnapshot = {
+          projects: [],
+          issues: { empty: false, items: [item] },
+          nextWeek: [],
+        };
+        const proposed = await requestScoped(current, "issueItem", { itemId: item.id });
+        if (!proposed) return "empty";
+        const changed = changedField(current, proposed, "issueItem", item.id);
+        if (!changed) return "same";
+        return {
+          zone: "存在问题与建议",
+          heading: changed.heading || displayName,
+          before: changed.before,
+          after: changed.after,
+          apply: () => onApply(item.id, changed.drafted.issues.items[0].text),
+        };
+      }}
+    />
+  );
+}
+
+export function NextWeekAiButton({
+  item,
+  onApply,
+}: {
+  item: NextWeekRow;
+  onApply: (itemId: string, items: string[]) => void;
+}) {
+  const displayName = item.projectName.trim() || "未命名计划";
+  return (
+    <SummarizeButton
+      ariaLabel={`一键总结 ${displayName}`}
+      previewTitle="一键总结预览"
+      hint="只覆盖这一行下周计划的要点。项目名、其他计划、重要事项和问题都不会改。确认前不会写入草稿。"
+      run={async () => {
+        const current: ZoneSnapshot = {
+          projects: [],
+          issues: { empty: true, items: [] },
+          nextWeek: [item],
+        };
+        const proposed = await requestScoped(current, "nextWeekItem", { itemId: item.id });
+        if (!proposed) return "empty";
+        const changed = changedField(current, proposed, "nextWeekItem", item.id);
+        if (!changed) return "same";
+        return {
+          zone: "下周工作计划",
+          heading: changed.heading || displayName,
+          before: changed.before,
+          after: changed.after,
+          apply: () => onApply(item.id, changed.drafted.nextWeek[0].items),
+        };
+      }}
+    />
   );
 }
