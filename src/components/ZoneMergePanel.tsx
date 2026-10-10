@@ -1,10 +1,28 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { IssueAiButton, NextWeekAiButton, ProjectAiButton } from "./AiSummarizeControl";
 import {
+  IssueAiButton,
+  IssuePartitionAiButton,
+  NextWeekAiButton,
+  NextWeekPartitionAiButton,
+  ProjectAiButton,
+} from "./AiSummarizeControl";
+import {
+  EMPTY_PARTITION_SELECTION,
   applyNextWeekProjectName,
+  canMergePartitions,
   groupByDisplayTag,
   issueDisplayTag,
+  mergeIssuePartitions,
+  mergeNextWeekPartitions,
+  movePartitionItems,
   nextWeekDisplayTag,
+  normalizePartitionName,
+  renameIssuePartition,
+  renameNextWeekPartition,
+  setPartitionPrimary,
+  togglePartitionSelection,
+  type PartitionSelection,
+  type PartitionZone,
 } from "../lib/bracketTag";
 import { newIssue, newPlanRow, newProject } from "../lib/importZones";
 import {
@@ -118,6 +136,8 @@ export function ZoneMergePanel({
   // Session-only. Not written to the draft, localStorage, or the URL.
   const [openProjectIds, setOpenProjectIds] = useState<ReadonlySet<string>>(() => new Set());
   const [collapsedIssueTags, setCollapsedIssueTags] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsedPlanTags, setCollapsedPlanTags] = useState<ReadonlySet<string>>(() => new Set());
+  const [partitionSel, setPartitionSel] = useState<PartitionSelection>(EMPTY_PARTITION_SELECTION);
   const seededNextWeekIds = useRef(new Set<string>());
 
   useEffect(() => {
@@ -128,6 +148,8 @@ export function ZoneMergePanel({
     setPendingItemDelete(null);
     setOpenProjectIds(new Set());
     setCollapsedIssueTags(new Set());
+    setCollapsedPlanTags(new Set());
+    setPartitionSel(EMPTY_PARTITION_SELECTION);
     seededNextWeekIds.current.clear();
   }, [resetKey]);
 
@@ -168,12 +190,49 @@ export function ZoneMergePanel({
   };
 
   const toggle = (zone: MergeZone, id: string) => {
+    setPartitionSel(EMPTY_PARTITION_SELECTION);
     const result = toggleSelection(selection, zone, id);
     setError(result.error ?? "");
     setSelection(result.selection);
   };
 
+  const togglePartition = (zone: PartitionZone, tag: string) => {
+    setSelection(EMPTY_SELECTION);
+    const result = togglePartitionSelection(partitionSel, zone, tag);
+    setError(result.error ?? "");
+    setPartitionSel(result.selection);
+  };
+
+  const mergeSelectedPartitions = () => {
+    if (!partitionSel.zone || !canMergePartitions(partitionSel)) {
+      setError("请在同一分区至少选择 2 条");
+      return;
+    }
+    const projects = value.projects;
+    if (partitionSel.zone === "issues") {
+      const items = mergeIssuePartitions(value.issues.items, partitionSel.tags, partitionSel.primaryTag);
+      if (items === value.issues.items) return;
+      setUndo((stack) => [...stack, value]);
+      setPartitionSel(EMPTY_PARTITION_SELECTION);
+      setSelection(EMPTY_SELECTION);
+      setError("");
+      onChange({ ...value, projects, issues: { ...value.issues, items } });
+      return;
+    }
+    const nextWeek = mergeNextWeekPartitions(value.nextWeek, partitionSel.tags, partitionSel.primaryTag);
+    if (nextWeek === value.nextWeek) return;
+    setUndo((stack) => [...stack, value]);
+    setPartitionSel(EMPTY_PARTITION_SELECTION);
+    setSelection(EMPTY_SELECTION);
+    setError("");
+    onChange({ ...value, projects, nextWeek });
+  };
+
   const mergeSelected = () => {
+    if (canMergePartitions(partitionSel)) {
+      mergeSelectedPartitions();
+      return;
+    }
     if (!selection.zone || !canMergeSelection(selection)) {
       setError("请在同一分区至少选择 2 条");
       return;
@@ -195,6 +254,7 @@ export function ZoneMergePanel({
     if (!previous) return;
     setUndo((stack) => stack.slice(0, -1));
     setSelection(EMPTY_SELECTION);
+    setPartitionSel(EMPTY_PARTITION_SELECTION);
     setPendingDeleteId(null);
     setError("");
     onChange(previous);
@@ -250,6 +310,84 @@ export function ZoneMergePanel({
     });
   };
 
+  const applyIssuePartitionSummary = (updates: { id: string; text: string }[]) => {
+    const byId = new Map(updates.map((row) => [row.id, row.text]));
+    let changed = false;
+    const items = value.issues.items.map((item) => {
+      const text = byId.get(item.id);
+      if (text == null || text === item.text) return item;
+      changed = true;
+      return clearLineMeta({ ...item, text });
+    });
+    if (!changed) return;
+    onChange({ ...value, issues: { ...value.issues, items } });
+  };
+
+  const applyNextPartitionSummary = (updates: { id: string; items: string[] }[]) => {
+    const byId = new Map(updates.map((row) => [row.id, row.items]));
+    let changed = false;
+    const nextWeek = value.nextWeek.map((item) => {
+      const items = byId.get(item.id);
+      if (!items || sameBullets(item.items, items)) return item;
+      changed = true;
+      return clearLineMeta({ ...item, items });
+    });
+    if (!changed) return;
+    onChange({ ...value, nextWeek });
+  };
+
+  const rememberPartitionTag = (
+    collapsed: ReadonlySet<string>,
+    selection: PartitionSelection,
+    zone: PartitionZone,
+    from: string,
+    to: string,
+  ) => {
+    if (collapsed.has(from)) {
+      const next = new Set(collapsed);
+      next.delete(from);
+      next.add(to);
+      if (zone === "issues") setCollapsedIssueTags(next);
+      else setCollapsedPlanTags(next);
+    }
+    if (selection.zone === zone && selection.tags.includes(from)) {
+      const tags = [...new Set(selection.tags.map((tag) => (tag === from ? to : tag)))];
+      setPartitionSel({
+        zone,
+        tags,
+        primaryTag: selection.primaryTag === from ? to : selection.primaryTag,
+      });
+    }
+  };
+
+  const renameIssueGroup = (from: string, raw: string) => {
+    const to = normalizePartitionName(raw);
+    const items = renameIssuePartition(value.issues.items, from, to);
+    if (items === value.issues.items) return;
+    rememberPartitionTag(collapsedIssueTags, partitionSel, "issues", from, to);
+    onChange({ ...value, projects: value.projects, issues: { ...value.issues, items } });
+  };
+
+  const renamePlanGroup = (from: string, raw: string) => {
+    const to = normalizePartitionName(raw);
+    const nextWeek = renameNextWeekPartition(value.nextWeek, from, to);
+    if (nextWeek === value.nextWeek) return;
+    rememberPartitionTag(collapsedPlanTags, partitionSel, "nextWeek", from, to);
+    onChange({ ...value, projects: value.projects, nextWeek });
+  };
+
+  const moveIssueGroup = (tag: string, dir: -1 | 1) => {
+    const items = movePartitionItems(value.issues.items, tag, dir, issueDisplayTag);
+    if (items === value.issues.items) return;
+    onChange({ ...value, projects: value.projects, issues: { ...value.issues, items } });
+  };
+
+  const movePlanGroup = (tag: string, dir: -1 | 1) => {
+    const nextWeek = movePartitionItems(value.nextWeek, tag, dir, nextWeekDisplayTag);
+    if (nextWeek === value.nextWeek) return;
+    onChange({ ...value, projects: value.projects, nextWeek });
+  };
+
   const commitItemDelete = () => {
     const pending = pendingItemDelete;
     setPendingItemDelete(null);
@@ -267,11 +405,14 @@ export function ZoneMergePanel({
   };
 
   const zoneName = selection.zone ? ZONE_LABEL[selection.zone] : "";
+  const partitionZoneName = partitionSel.zone ? ZONE_LABEL[partitionSel.zone] : "";
   const statusText = error
     ? error
-    : selection.ids.length >= 2
-      ? `已选 ${selection.ids.length} 条（${zoneName}）。标题取较长名称，等长取主项。`
-      : "只能合并同一分区。至少选择 2 条后点「合并」。标题取较长名称，等长取主项（默认先勾选）。正文按勾选顺序拼接，每行前加 [状态·负责人]。入库前可撤销本次合并。";
+    : partitionSel.tags.length >= 2
+      ? `已选 ${partitionSel.tags.length} 个分区（${partitionZoneName}）。标题取较长名称，等长取主项。`
+      : selection.ids.length >= 2
+        ? `已选 ${selection.ids.length} 条（${zoneName}）。标题取较长名称，等长取主项。`
+        : "只能合并同一分区。至少选择 2 条后点「合并」。标题取较长名称，等长取主项（默认先勾选）。正文按勾选顺序拼接，每行前加 [状态·负责人]。入库前可撤销本次合并。";
 
   const selected = new Set(selection.ids);
   const activeZone = selection.zone;
@@ -281,7 +422,11 @@ export function ZoneMergePanel({
       <div className="merge-toolbar">
         <p className={error ? "error merge-status" : "hint merge-status"}>{statusText}</p>
         <div className="inline-actions">
-          <button className="btn btn-primary btn-sm" disabled={!canMergeSelection(selection)} onClick={mergeSelected}>
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={!canMergeSelection(selection) && !canMergePartitions(partitionSel)}
+            onClick={mergeSelected}
+          >
             合并
           </button>
           <button
@@ -463,17 +608,34 @@ export function ZoneMergePanel({
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无问题或建议。</div>
         ) : (
           <div className="zone-tag-groups">
-            {groupByDisplayTag(value.issues.items, issueDisplayTag).map((group) => {
+            {groupByDisplayTag(value.issues.items, issueDisplayTag).map((group, groupIndex) => {
               const open = !collapsedIssueTags.has(group.tag);
+              const partitionChecked = partitionSel.zone === "issues" && partitionSel.tags.includes(group.tag);
               return (
               <section
-                key={group.tag}
+                key={group.items[0]?.id ?? group.tag}
                 className={`issue-partition${open ? "" : " is-collapsed"}`}
                 aria-label={`问题分组 ${group.tag}`}
               >
-                <div className="issue-partition-head">
-                  <h4 className="issue-partition-name">{group.tag}</h4>
+                <div className="project-head issue-partition-head">
+                  <label className="merge-check">
+                    <input
+                      type="checkbox"
+                      checked={partitionChecked}
+                      aria-label={`选择问题分区 ${group.tag}`}
+                      onChange={() => togglePartition("issues", group.tag)}
+                    />
+                  </label>
+                  <PrimaryMark
+                    selected={partitionChecked}
+                    primary={partitionSel.zone === "issues" && partitionSel.primaryTag === group.tag}
+                    onSetPrimary={() => setPartitionSel(setPartitionPrimary(partitionSel, group.tag))}
+                  />
+                  <span className="drag-handle">{groupIndex + 1}</span>
+                  <PartitionNameInput name={group.tag} onRename={(next) => renameIssueGroup(group.tag, next)} />
                   <span className="issue-partition-count">{group.items.length} 条</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => moveIssueGroup(group.tag, -1)}>上移</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => moveIssueGroup(group.tag, 1)}>下移</button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -483,6 +645,7 @@ export function ZoneMergePanel({
                   >
                     {open ? "收起" : "展开"}
                   </button>
+                  <IssuePartitionAiButton tag={group.tag} items={group.items} onApply={applyIssuePartitionSummary} />
                 </div>
                 {open ? (
                 <div className="issue-partition-body merge-list">
@@ -579,13 +742,56 @@ export function ZoneMergePanel({
           <div className="panel empty" style={{ boxShadow: "none" }}>暂无下周计划。</div>
         ) : (
           <div className="zone-tag-groups">
-            {groupByDisplayTag(value.nextWeek, nextWeekDisplayTag).map((group) => (
-              <section key={group.tag} className="zone-tag-group" aria-label={`下周分组 ${group.tag}`}>
-                <h4 className="zone-tag-heading">{group.tag}</h4>
-                <div className="merge-list">
+            {groupByDisplayTag(value.nextWeek, nextWeekDisplayTag).map((group, groupIndex) => {
+              const open = !collapsedPlanTags.has(group.tag);
+              const partitionChecked = partitionSel.zone === "nextWeek" && partitionSel.tags.includes(group.tag);
+              return (
+              <section
+                key={group.items[0]?.id ?? group.tag}
+                className={`issue-partition${open ? "" : " is-collapsed"}`}
+                aria-label={`下周分组 ${group.tag}`}
+              >
+                <div className="project-head issue-partition-head">
+                  <label className="merge-check">
+                    <input
+                      type="checkbox"
+                      checked={partitionChecked}
+                      aria-label={`选择下周分区 ${group.tag}`}
+                      onChange={() => togglePartition("nextWeek", group.tag)}
+                    />
+                  </label>
+                  <PrimaryMark
+                    selected={partitionChecked}
+                    primary={partitionSel.zone === "nextWeek" && partitionSel.primaryTag === group.tag}
+                    onSetPrimary={() => setPartitionSel(setPartitionPrimary(partitionSel, group.tag))}
+                  />
+                  <span className="drag-handle">{groupIndex + 1}</span>
+                  <PartitionNameInput name={group.tag} onRename={(next) => renamePlanGroup(group.tag, next)} />
+                  <span className="issue-partition-count">{group.items.length} 条</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => movePlanGroup(group.tag, -1)}>上移</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => movePlanGroup(group.tag, 1)}>下移</button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-expanded={open}
+                    aria-label={`${open ? "收起" : "展开"}下周分组 ${group.tag}`}
+                    onClick={() => {
+                      setCollapsedPlanTags((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.tag)) next.delete(group.tag);
+                        else next.add(group.tag);
+                        return next;
+                      });
+                    }}
+                  >
+                    {open ? "收起" : "展开"}
+                  </button>
+                  <NextWeekPartitionAiButton tag={group.tag} items={group.items} onApply={applyNextPartitionSummary} />
+                </div>
+                {open ? (
+                <div className="issue-partition-body merge-list">
             {group.items.map((row) => {
               const index = value.nextWeek.findIndex((item) => item.id === row.id);
-              const tag = nextWeekDisplayTag(row);
               return (
               <article
                 key={row.id}
@@ -606,7 +812,6 @@ export function ZoneMergePanel({
                       primary={activeZone === "nextWeek" && selection.primaryId === row.id}
                       onSetPrimary={() => setSelection(setPrimary(selection, row.id))}
                     />
-                    <span className="zone-item-tag">{tag}</span>
                     <input
                       className="text-input"
                       placeholder="项目"
@@ -641,32 +846,68 @@ export function ZoneMergePanel({
                       onConfirm={commitItemDelete}
                     />
                   ) : null}
-                  <textarea
-                    className="text-input"
-                    placeholder="工作内容（每行一条）"
-                    value={row.items.join("\n")}
-                    onChange={(event) =>
-                      onChange({
-                        ...value,
-                        nextWeek: value.nextWeek.map((item) => {
-                          if (item.id !== row.id) return item;
-                          const items = event.target.value.split("\n");
-                          return clearLineMeta(applyNextWeekProjectName({ ...item, items }, "edit"));
-                        }),
-                      })
-                    }
-                  />
                 </div>
+                <textarea
+                  className="text-input next-week-body"
+                  placeholder="工作内容（每行一条）"
+                  value={row.items.join("\n")}
+                  onChange={(event) =>
+                    onChange({
+                      ...value,
+                      nextWeek: value.nextWeek.map((item) => {
+                        if (item.id !== row.id) return item;
+                        const items = event.target.value.split("\n");
+                        return clearLineMeta(applyNextWeekProjectName({ ...item, items }, "edit"));
+                      }),
+                    })
+                  }
+                />
               </article>
               );
             })}
                 </div>
+                ) : null}
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
     </div>
+  );
+}
+
+function PartitionNameInput({ name, onRename }: { name: string; onRename: (next: string) => void }) {
+  // Draft only while the field is empty or not yet normalized. A cleared name
+  // commits to 未分类 on blur, same as a missing 【】 pair.
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? name;
+  return (
+    <input
+      className="text-input issue-partition-name"
+      placeholder="项目名称 *"
+      aria-label={`分区名称 ${name}`}
+      value={shown}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setDraft(raw);
+        const trimmed = raw.replace(/[【】]/g, "").trim();
+        if (trimmed && trimmed !== name) onRename(trimmed);
+      }}
+      onBlur={() => {
+        const next = normalizePartitionName(draft ?? name);
+        setDraft(null);
+        if (next !== name) onRename(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          setDraft(null);
+        }
+      }}
+    />
   );
 }
 

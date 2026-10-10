@@ -158,7 +158,11 @@ function changedField(before: ZoneSnapshot, after: ZoneSnapshot, scope: AiScope,
   return { drafted, before: field.before, after: field.after, heading: diff[0]?.heading ?? "" };
 }
 
-async function requestScoped(materials: ZoneSnapshot, scope: AiScope, target: { projectId?: string; itemId?: string }) {
+async function requestScoped(
+  materials: ZoneSnapshot,
+  scope: AiScope,
+  target: { projectId?: string; itemId?: string } = {},
+) {
   const result = await requestAiSummary(materials, scope, target);
   if (!isMaterials(result?.materials)) return null;
   return result.materials;
@@ -262,7 +266,79 @@ export function NextWeekAiButton({
           heading: changed.heading || displayName,
           before: changed.before,
           after: changed.after,
-          apply: () => onApply(item.id, changed.drafted.nextWeek[0].items),
+        apply: () => onApply(item.id, changed.drafted.nextWeek[0].items),
+      };
+    }}
+  />
+);
+}
+
+export function IssuePartitionAiButton({
+  tag,
+  items,
+  onApply,
+}: {
+  tag: string;
+  items: IssueItem[];
+  onApply: (updates: { id: string; text: string }[]) => void;
+}) {
+  return (
+    <SummarizeButton
+      ariaLabel={`一键总结问题分区 ${tag}`}
+      previewTitle="一键总结预览"
+      hint="只覆盖这个问题分区里各条正文。分区名、其他分区、重要事项和下周计划都不会改。确认前不会写入草稿。"
+      run={async () => {
+        const current: ZoneSnapshot = {
+          projects: [],
+          issues: { empty: false, items },
+          nextWeek: [],
+        };
+        const proposed = await requestScoped(current, "issuePartition");
+        if (!proposed) return "empty";
+        if (!commitAiPreview(true, current, proposed, "issuePartition")) return "same";
+        const drafted = applyAiText(current, proposed, "issuePartition");
+        return {
+          zone: "存在问题与建议",
+          heading: tag,
+          before: items.map((item) => item.text).join("\n"),
+          after: drafted.issues.items.map((item) => item.text).join("\n"),
+          apply: () => onApply(drafted.issues.items.map((item) => ({ id: item.id, text: item.text }))),
+        };
+      }}
+    />
+  );
+}
+
+export function NextWeekPartitionAiButton({
+  tag,
+  items,
+  onApply,
+}: {
+  tag: string;
+  items: NextWeekRow[];
+  onApply: (updates: { id: string; items: string[] }[]) => void;
+}) {
+  return (
+    <SummarizeButton
+      ariaLabel={`一键总结下周分区 ${tag}`}
+      previewTitle="一键总结预览"
+      hint="只覆盖这个下周分区里各行要点。分区名、项目名、其他分区、重要事项和问题都不会改。确认前不会写入草稿。"
+      run={async () => {
+        const current: ZoneSnapshot = {
+          projects: [],
+          issues: { empty: true, items: [] },
+          nextWeek: items,
+        };
+        const proposed = await requestScoped(current, "nextWeekPartition");
+        if (!proposed) return "empty";
+        if (!commitAiPreview(true, current, proposed, "nextWeekPartition")) return "same";
+        const drafted = applyAiText(current, proposed, "nextWeekPartition");
+        return {
+          zone: "下周工作计划",
+          heading: tag,
+          before: items.map((item) => item.items.join("\n")).join("\n"),
+          after: drafted.nextWeek.map((item) => item.items.join("\n")).join("\n"),
+          apply: () => onApply(drafted.nextWeek.map((item) => ({ id: item.id, items: item.items }))),
         };
       }}
     />

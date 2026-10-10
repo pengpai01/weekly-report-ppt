@@ -2,11 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   UNTAGGED_LABEL,
   applyNextWeekProjectName,
+  canMergePartitions,
+  chosenPartitionName,
   firstBracketTag,
   groupByDisplayTag,
   issueDisplayTag,
+  mergeIssuePartitions,
+  mergeNextWeekPartitions,
+  movePartitionItems,
   nextWeekDisplayTag,
   nextWeekProjectNameFromItems,
+  normalizePartitionName,
+  renameIssuePartition,
+  renameNextWeekPartition,
+  togglePartitionSelection,
+  EMPTY_PARTITION_SELECTION,
 } from "./bracketTag";
 
 describe("firstBracketTag", () => {
@@ -64,5 +74,91 @@ describe("nextWeekProjectNameFromItems", () => {
     expect(applyNextWeekProjectName({ projectName: "带入的名字", items: [""] }, "edit")).toMatchObject({
       projectName: "带入的名字",
     });
+  });
+});
+
+describe("partition rename and merge", () => {
+  const issues = () => [
+    { id: "i1", title: "【别的】登录失败", text: "【设备】账号锁定", owner: "李四" },
+    { id: "i2", text: "【设备】需要手册" },
+    { id: "i3", title: "【设备】仅旧标题", text: "见日志" },
+    { id: "i4", text: "值班说明" },
+  ];
+
+  it("renames an issue partition by following 【】 and leaves other rows alone", () => {
+    const source = issues();
+    const next = renameIssuePartition(source, "设备", "仪器");
+    expect(next.map((item) => item.text)).toEqual(["【仪器】账号锁定", "【仪器】需要手册", "见日志", "值班说明"]);
+    expect(next[0].title).toBe("【别的】登录失败");
+    expect(next[2].title).toBe("【仪器】仅旧标题");
+    expect(next[0].owner).toBe("李四");
+    expect(next[3]).toBe(source[3]);
+    expect(source[0].text).toBe("【设备】账号锁定");
+  });
+
+  it("treats an empty issue name as 未分类 by removing the pair", () => {
+    expect(normalizePartitionName("  ")).toBe(UNTAGGED_LABEL);
+    expect(normalizePartitionName("【】")).toBe(UNTAGGED_LABEL);
+    expect(normalizePartitionName(" 仪器 ")).toBe("仪器");
+    const next = renameIssuePartition(issues(), "设备", "");
+    expect(next.map(issueDisplayTag)).toEqual([UNTAGGED_LABEL, UNTAGGED_LABEL, UNTAGGED_LABEL, UNTAGGED_LABEL]);
+    expect(next[0].text).toBe("账号锁定");
+    expect(next[0].text).not.toContain("【");
+    expect(next[0].title).toBe("登录失败");
+    expect(next[2].title).toBe("仅旧标题");
+    expect(renameIssuePartition(next, UNTAGGED_LABEL, "仪器")[0].text).toBe("【仪器】账号锁定");
+  });
+
+  it("writes next-week projectName and follows 【】 without an empty name", () => {
+    const rows = [
+      { id: "n1", projectName: "形态学", items: ["【形态学】压测", "补充"] },
+      { id: "n2", projectName: "其他计划", items: ["回归"] },
+    ];
+    const renamed = renameNextWeekPartition(rows, "形态学", "检验");
+    expect(renamed[0]).toMatchObject({ projectName: "检验", items: ["【检验】压测", "补充"] });
+    expect(renamed[1]).toBe(rows[1]);
+    const cleared = renameNextWeekPartition(renamed, "检验", " ");
+    expect(cleared[0]).toMatchObject({ projectName: UNTAGGED_LABEL, items: ["压测", "补充"] });
+    expect(cleared[0].items.join("")).not.toContain("【");
+    expect(nextWeekDisplayTag(cleared[0])).toBe(UNTAGGED_LABEL);
+    const named = renameNextWeekPartition(rows, UNTAGGED_LABEL, "采购");
+    expect(named[1]).toMatchObject({ projectName: "采购", items: ["【采购】回归"] });
+    expect(named[0]).toBe(rows[0]);
+  });
+
+  it("merges partitions with the longer name, then the primary, and can move a block", () => {
+    const source = issues();
+    expect(chosenPartitionName(["设备", "形态学"], "设备")).toBe("形态学");
+    expect(chosenPartitionName(["设备", "采购"], "采购")).toBe("采购");
+    expect(chosenPartitionName(["设备", UNTAGGED_LABEL], "设备")).toBe(UNTAGGED_LABEL);
+    const merged = mergeIssuePartitions(source, ["设备", UNTAGGED_LABEL], "设备");
+    expect(merged.map(issueDisplayTag)).toEqual([
+      UNTAGGED_LABEL,
+      UNTAGGED_LABEL,
+      UNTAGGED_LABEL,
+      UNTAGGED_LABEL,
+    ]);
+    expect(merged[0].text).toBe("账号锁定");
+    expect(merged[3]).toBe(source[3]);
+    expect(mergeIssuePartitions(source, ["设备"], null)).toBe(source);
+
+    const plans = [
+      { id: "n1", projectName: "形态学", items: ["【形态学】压测"] },
+      { id: "n2", projectName: "其他计划", items: ["回归"] },
+    ];
+    const planMerge = mergeNextWeekPartitions(plans, ["形态学", UNTAGGED_LABEL], "形态学");
+    expect(planMerge[1]).toMatchObject({ projectName: "形态学", items: ["【形态学】回归"] });
+    expect(planMerge[0]).toBe(plans[0]);
+
+    const moved = movePartitionItems(source, "设备", 1, issueDisplayTag);
+    expect(moved.map((item) => item.id)).toEqual(["i4", "i1", "i2", "i3"]);
+    expect(movePartitionItems(source, "设备", -1, issueDisplayTag)).toBe(source);
+
+    let selection = EMPTY_PARTITION_SELECTION;
+    selection = togglePartitionSelection(selection, "issues", "设备").selection;
+    selection = togglePartitionSelection(selection, "issues", UNTAGGED_LABEL).selection;
+    expect(canMergePartitions(selection)).toBe(true);
+    expect(selection.primaryTag).toBe("设备");
+    expect(togglePartitionSelection(selection, "nextWeek", "形态学").error).toBe("只能合并同一分区内的条目");
   });
 });

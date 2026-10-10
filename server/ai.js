@@ -13,6 +13,8 @@ const SCOPES = new Set([
   "project",
   "issueItem",
   "nextWeekItem",
+  "issuePartition",
+  "nextWeekPartition",
 ]);
 const DEFAULT_BASE = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-chat";
@@ -54,10 +56,30 @@ const NEXT_ITEM_SYSTEM_PROMPT = [
   "只返回 JSON：{\"nextWeekItem\":{\"id\":\"原id\",\"items\":[\"...\"]}}",
 ].join("");
 
+const ISSUE_PARTITION_SYSTEM_PROMPT = [
+  "你是周报编辑。只压缩这一分区里每一条问题的正文 text，不新增数字、人名、结论或建议。",
+  "只改写 text。每条 id 必须原样返回。不要改写 title，不要增删条目。",
+  "不要返回 projects 或 nextWeek。",
+  "每条 text 不超过 60 个字。",
+  "若正文里有【标签】，原样保留这对括号及其中的文字。",
+  "只返回 JSON：{\"issues\":[{\"id\":\"原id\",\"text\":\"...\"}]}",
+].join("");
+
+const NEXT_PARTITION_SYSTEM_PROMPT = [
+  "你是周报编辑。只压缩这一分区里每一行下周计划的 items，不新增数字、人名、结论或建议。",
+  "只改写 items。每条 id 必须原样返回。不要改写 projectName，不要增删行。",
+  "不要返回 projects 或 issues。",
+  "每条不超过 60 个字，每个 id 的条数不能多于原文。",
+  "若要点里有【标签】，原样保留这对括号及其中的文字。",
+  "只返回 JSON：{\"nextWeek\":[{\"id\":\"原id\",\"items\":[\"...\"]}]}",
+].join("");
+
 function systemPromptFor(scope) {
   if (scope === "project") return PROJECT_SYSTEM_PROMPT;
   if (scope === "issueItem") return ISSUE_ITEM_SYSTEM_PROMPT;
   if (scope === "nextWeekItem") return NEXT_ITEM_SYSTEM_PROMPT;
+  if (scope === "issuePartition") return ISSUE_PARTITION_SYSTEM_PROMPT;
+  if (scope === "nextWeekPartition") return NEXT_PARTITION_SYSTEM_PROMPT;
   return SYSTEM_PROMPT;
 }
 
@@ -173,7 +195,7 @@ function readScope(body) {
     throw fail(
       400,
       "ai.bad_request",
-      "scope 只能是 page、projects、issues、nextWeek、project、issueItem 或 nextWeekItem。原文未改动。",
+      "scope 只能是 page、projects、issues、nextWeek、project、issueItem、nextWeekItem、issuePartition 或 nextWeekPartition。原文未改动。",
     );
   }
   return scope;
@@ -254,6 +276,18 @@ function promptPayload(materials, scope, target) {
     const item = materials.nextWeek.find((row) => row.id === target.itemId);
     payload.itemId = target.itemId;
     payload.nextWeekItem = { id: target.itemId, items: nonEmptyLines(item?.items) };
+    return payload;
+  }
+  if (scope === "issuePartition") {
+    payload.issues = materials.issues.items
+      .filter((item) => String(item.text ?? "").trim())
+      .map((item) => ({ id: item.id, text: String(item.text ?? "") }));
+    return payload;
+  }
+  if (scope === "nextWeekPartition") {
+    payload.nextWeek = materials.nextWeek
+      .filter((item) => nonEmptyLines(item.items).length > 0)
+      .map((item) => ({ id: item.id, items: nonEmptyLines(item.items) }));
     return payload;
   }
   if (scope === "page" || scope === "projects") {
@@ -452,10 +486,54 @@ function mergeNextWeekItem(materials, parsed, itemId, secret) {
   return { projects: materials.projects, issues: materials.issues, nextWeek };
 }
 
+function mergeIssuePartition(materials, parsed, secret) {
+  const byId = mapById(asProposedList(parsed?.issues) || (parsed?.issue ? [parsed.issue] : null));
+  if (!byId) return null;
+  const items = [];
+  for (const item of materials.issues.items) {
+    if (!String(item.text ?? "").trim()) {
+      items.push(item);
+      continue;
+    }
+    const proposed = byId.get(item.id);
+    if (!proposed) return null;
+    const text = clip(proposed.text, AI_BULLET_MAX, secret);
+    if (!text) return null;
+    if (text === (item.text ?? "")) items.push(item);
+    else items.push(stripLineMeta({ ...item, text }));
+  }
+  return {
+    projects: materials.projects,
+    issues: { empty: materials.issues.empty, items },
+    nextWeek: materials.nextWeek,
+  };
+}
+
+function mergeNextWeekPartition(materials, parsed, secret) {
+  const byId = mapById(asProposedList(parsed?.nextWeek) || (parsed?.nextWeekItem ? [parsed.nextWeekItem] : null));
+  if (!byId) return null;
+  const nextWeek = [];
+  for (const item of materials.nextWeek) {
+    if (!nonEmptyLines(item.items).length) {
+      nextWeek.push(item);
+      continue;
+    }
+    const proposed = byId.get(item.id);
+    if (!proposed) return null;
+    const items = rewriteLines(item.items, proposed.items, Number.POSITIVE_INFINITY, secret);
+    if (!items.ok) return null;
+    if (!items.changed) nextWeek.push(item);
+    else nextWeek.push(stripLineMeta({ ...item, items: items.value }));
+  }
+  return { projects: materials.projects, issues: materials.issues, nextWeek };
+}
+
 function mergeSummary(materials, parsed, scope, secret, target = { projectId: "", itemId: "" }) {
   if (scope === "project") return mergeProjectBullets(materials, parsed, target.projectId, secret);
   if (scope === "issueItem") return mergeIssueItem(materials, parsed, target.itemId, secret);
   if (scope === "nextWeekItem") return mergeNextWeekItem(materials, parsed, target.itemId, secret);
+  if (scope === "issuePartition") return mergeIssuePartition(materials, parsed, secret);
+  if (scope === "nextWeekPartition") return mergeNextWeekPartition(materials, parsed, secret);
   const projects =
     scope === "page" || scope === "projects"
       ? mergeList(materials.projects, parsed.projects, hasProjectText, (item, proposed) =>

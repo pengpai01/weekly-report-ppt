@@ -7,7 +7,16 @@ export const AI_TITLE_MAX = 24;
 export const AI_BULLET_MAX = 60;
 export const AI_PROGRESS_BULLETS_MAX = 5;
 
-export type AiScope = "page" | "projects" | "issues" | "nextWeek" | "project" | "issueItem" | "nextWeekItem";
+export type AiScope =
+  | "page"
+  | "projects"
+  | "issues"
+  | "nextWeek"
+  | "project"
+  | "issueItem"
+  | "nextWeekItem"
+  | "issuePartition"
+  | "nextWeekPartition";
 
 export type AiDiffField = {
   label: string;
@@ -182,6 +191,25 @@ export function applyAiText(
       nextWeek: current.nextWeek.map((item) =>
         item.id === targetId ? applyNextItemsOnly(item, byId(proposed.nextWeek).get(item.id)) : item,
       ),
+    };
+  }
+  if (scope === "issuePartition") {
+    const proposedIssues = byId(proposed.issues.items);
+    return {
+      projects: current.projects,
+      issues: {
+        empty: current.issues.empty,
+        items: current.issues.items.map((item) => applyIssueBody(item, proposedIssues.get(item.id))),
+      },
+      nextWeek: current.nextWeek,
+    };
+  }
+  if (scope === "nextWeekPartition") {
+    const proposedRows = byId(proposed.nextWeek);
+    return {
+      projects: current.projects,
+      issues: current.issues,
+      nextWeek: current.nextWeek.map((item) => applyNextItemsOnly(item, proposedRows.get(item.id))),
     };
   }
   const projects =

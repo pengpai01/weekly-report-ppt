@@ -5,7 +5,13 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { IssueAiButton, NextWeekAiButton, ProjectAiButton } from "./AiSummarizeControl";
+import {
+  IssueAiButton,
+  IssuePartitionAiButton,
+  NextWeekAiButton,
+  NextWeekPartitionAiButton,
+  ProjectAiButton,
+} from "./AiSummarizeControl";
 import type { IssueItem, NextWeekRow, Project } from "../types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -240,5 +246,98 @@ describe("issue and next-week item buttons", () => {
     });
     expect(bodies[1]).toMatchObject({ scope: "nextWeekItem", itemId: "n1", materials: { projects: [] } });
     expect(planApplies).toEqual([]);
+  });
+});
+
+describe("partition summarize buttons", () => {
+  it("confirms partition bodies and undo writes nothing", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        bodies.push(body);
+        expect(body.apiKey).toBeUndefined();
+        expect(body.projectId).toBeUndefined();
+        expect(body.itemId).toBeUndefined();
+        if (body.scope === "issuePartition") {
+          return new Response(
+            JSON.stringify({
+              scope: "issuePartition",
+              materials: {
+                projects: [{ id: "p-should-not-apply", name: "不该写", bullets: ["不该写"] }],
+                issues: {
+                  empty: false,
+                  items: [{ id: "i1", title: "不该改标题", text: "【设备】账号被锁定" }],
+                },
+                nextWeek: [],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            scope: "nextWeekPartition",
+            materials: {
+              projects: [],
+              issues: { empty: true, items: [] },
+              nextWeek: [{ id: "n1", projectName: "不该改名", items: ["【形态学】完成压测"] }],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const issueApplies: { id: string; text: string }[][] = [];
+    const planApplies: { id: string; items: string[] }[][] = [];
+    await act(async () => {
+      root!.render(
+        <>
+          <IssuePartitionAiButton
+            tag="设备"
+            items={[issue()]}
+            onApply={(updates) => issueApplies.push(updates)}
+          />
+          <NextWeekPartitionAiButton
+            tag="形态学"
+            items={[plan()]}
+            onApply={(updates) => planApplies.push(updates)}
+          />
+        </>,
+      );
+    });
+    await act(async () => {
+      (document.querySelector('button[aria-label="一键总结问题分区 设备"]') as HTMLButtonElement).click();
+    });
+    expect(bodies[0]).toMatchObject({
+      scope: "issuePartition",
+      materials: { projects: [], nextWeek: [] },
+    });
+    expect(document.body.textContent).toContain("【设备】账号被锁定");
+    const undo = [...document.querySelectorAll("button")].find((node) => node.textContent === "撤销") as HTMLButtonElement;
+    await act(async () => {
+      undo.click();
+    });
+    expect(issueApplies).toEqual([]);
+    await act(async () => {
+      (document.querySelector('button[aria-label="一键总结问题分区 设备"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      ([...document.querySelectorAll("button")].find((node) => node.textContent === "确认写入") as HTMLButtonElement).click();
+    });
+    expect(issueApplies).toEqual([[{ id: "i1", text: "【设备】账号被锁定" }]]);
+    await act(async () => {
+      (document.querySelector('button[aria-label="一键总结下周分区 形态学"]') as HTMLButtonElement).click();
+    });
+    expect(bodies[2]).toMatchObject({ scope: "nextWeekPartition", materials: { projects: [] } });
+    expect(planApplies).toEqual([]);
+    await act(async () => {
+      ([...document.querySelectorAll("button")].find((node) => node.textContent === "确认写入") as HTMLButtonElement).click();
+    });
+    expect(planApplies).toEqual([[{ id: "n1", items: ["【形态学】完成压测"] }]]);
   });
 });

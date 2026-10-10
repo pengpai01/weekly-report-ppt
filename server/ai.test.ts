@@ -539,6 +539,106 @@ describe("scoped project and item summarize", () => {
     expect(missingIssue.status).toBe(400);
     expect(called).toBe(0);
   });
+
+  it("rewrites a partition's bodies only and never replaces projects", async () => {
+    const seen: string[] = [];
+    const { base } = await startApi({
+      aiEnv: { DEEPSEEK_API_KEY: KEY },
+      aiFetch: async (_url: string, init: RequestInit) => {
+        const user = JSON.parse(JSON.parse(String(init.body)).messages[1].content) as {
+          scope?: string;
+          issues?: unknown;
+          nextWeek?: unknown;
+          projects?: unknown;
+        };
+        seen.push(JSON.stringify(user));
+        if (user.scope === "issuePartition") {
+          expect(user.projects).toBeUndefined();
+          expect(user.nextWeek).toBeUndefined();
+          return chatResponse({
+            issues: [{ id: "i1", title: "不该改标题", text: `${KEY}【设备】账号被锁定` }],
+            projects: [{ id: "p1", name: "不该写项目", bullets: ["不该写"] }],
+          });
+        }
+        expect(user.scope).toBe("nextWeekPartition");
+        expect(user.projects).toBeUndefined();
+        expect(user.issues).toBeUndefined();
+        return chatResponse({
+          nextWeek: [{ id: "n1", projectName: "不该改名", items: [`${KEY}【形态学】完成压测`, "多出来的一条"] }],
+          projects: [{ id: "p1", name: "不该写项目", bullets: ["不该写"] }],
+        });
+      },
+    });
+    const issueMaterials = {
+      projects: packed().projects,
+      issues: { empty: false, items: [packed().issues.items[0]] },
+      nextWeek: [],
+    };
+    const issueRes = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "issuePartition", materials: issueMaterials }),
+    });
+    const issueBody = await issueRes.json();
+    expect(issueRes.status).toBe(200);
+    expect(issueBody.scope).toBe("issuePartition");
+    expect(issueBody.materials.projects).toEqual(issueMaterials.projects);
+    expect(issueBody.materials.issues.items[0].title).toBe("【设备】登录失败");
+    expect(issueBody.materials.issues.items[0].text).toBe("【设备】账号被锁定");
+    expect(issueBody.materials.nextWeek).toEqual([]);
+    expect(JSON.stringify(issueBody)).not.toContain(KEY);
+
+    const planMaterials = {
+      projects: packed().projects,
+      issues: { empty: true, items: [] },
+      nextWeek: [packed().nextWeek[0]],
+    };
+    const planRes = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "nextWeekPartition", materials: planMaterials }),
+    });
+    const planBody = await planRes.json();
+    expect(planRes.status).toBe(200);
+    expect(planBody.materials.nextWeek[0].projectName).toBe("【形态学】下周");
+    expect(planBody.materials.nextWeek[0].items).toEqual(["【形态学】完成压测"]);
+    expect(planBody.materials.projects).toEqual(planMaterials.projects);
+    expect(planBody.materials.issues).toEqual(planMaterials.issues);
+    expect(seen[0]).not.toContain("其他项目要点不能出现");
+    expect(seen[0]).not.toContain("另一条问题不能出现");
+    expect(seen[0]).toContain("issuePartition");
+    expect(seen[1]).not.toContain("联调要点需要压缩");
+    expect(seen[1]).toContain("nextWeekPartition");
+    expect(issueMaterials.projects).toEqual(packed().projects);
+  });
+
+  it("returns ai.not_configured for a partition scope without calling upstream", async () => {
+    let called = 0;
+    const { base } = await startApi({
+      aiEnv: {},
+      aiFetch: async () => {
+        called += 1;
+        return chatResponse({ issues: [{ id: "i1", text: "不该出现" }] });
+      },
+    });
+    const res = await fetch(`${base}/api/ai/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: "issuePartition",
+        materials: {
+          projects: [{ id: "p1", name: "设备管理", bullets: ["联调"] }],
+          issues: { empty: false, items: [{ id: "i1", text: "【设备】账号锁定" }] },
+          nextWeek: [],
+        },
+      }),
+    });
+    const body = await res.json();
+    expect(res.status).toBe(503);
+    expect(body.code).toBe("ai.not_configured");
+    expect(body.error).toContain("原文未改动");
+    expect(called).toBe(0);
+  });
 });
 
 describe("client and server source", () => {
