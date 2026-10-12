@@ -385,7 +385,7 @@ describe("zones default collapsed", () => {
     await act(async () => {
       buttons("添加项目")[0].click();
     });
-    expect(document.querySelector('button[aria-label="展开 未命名项目"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('button[aria-label="展开 未分类"]')?.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector("textarea.project-bullets-input")).toBeNull();
 
     const projectsBeforeCarry = value.projects;

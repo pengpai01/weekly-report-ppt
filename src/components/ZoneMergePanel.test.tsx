@@ -71,7 +71,11 @@ describe("shared merge preview", () => {
       />,
     );
     expect(html).toContain("设备管理");
-    expect(html).toContain("未命名项目");
+    expect(html).toContain("未分类");
+    expect(html).toContain('value="未分类"');
+    expect(html).toContain("项目名称 未分类");
+    expect(html).toContain("展开 未分类");
+    expect(html).not.toContain("未命名项目");
     expect(html).toContain("2 条");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("联调");

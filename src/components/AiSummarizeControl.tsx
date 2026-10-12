@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { aiErrorMessage, requestAiSummary } from "../lib/api";
+import { UNTAGGED_LABEL } from "../lib/bracketTag";
 import { applyAiText, buildAiDiff, commitAiPreview, type AiScope } from "../lib/aiSummarize";
 import type { ZoneSnapshot } from "../lib/zoneMerge";
 import type { IssueItem, NextWeekRow, Project } from "../types";
@@ -175,7 +176,7 @@ export function ProjectAiButton({
   project: Project;
   onApply: (projectId: string, bullets: string[]) => void;
 }) {
-  const displayName = project.name.trim() || "未命名项目";
+  const displayName = project.name.trim() || UNTAGGED_LABEL;
   return (
     <SummarizeButton
       ariaLabel={`一键总结 ${displayName}`}

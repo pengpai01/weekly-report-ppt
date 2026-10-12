@@ -19,6 +19,7 @@ import {
   nextWeekDisplayTag,
   nextWeekGroupBody,
   normalizePartitionName,
+  UNTAGGED_LABEL,
   renameIssuePartition,
   renameNextWeekPartition,
   setPartitionPrimary,
@@ -382,6 +383,15 @@ export function ZoneMergePanel({
     onChange({ ...value, projects: value.projects, nextWeek });
   };
 
+  const renameProject = (projectId: string, nextName: string) => {
+    const project = value.projects.find((item) => item.id === projectId);
+    if (!project || project.name === nextName) return;
+    onChange({
+      ...value,
+      projects: value.projects.map((item) => (item.id === projectId ? { ...item, name: nextName } : item)),
+    });
+  };
+
   const zoneName = selection.zone ? ZONE_LABEL[selection.zone] : "";
   const partitionZoneName = partitionSel.zone ? ZONE_LABEL[partitionSel.zone] : "";
   const statusText = error
@@ -438,7 +448,7 @@ export function ZoneMergePanel({
             {value.projects.map((project, index) => {
               const open = openProjectIds.has(project.id);
               const projectChecked = activeZone === "projects" && selected.has(project.id);
-              const displayName = project.name.trim() || "未命名项目";
+              const displayName = project.name.trim() || UNTAGGED_LABEL;
               const itemCount = project.bullets.length;
               return (
               <article
@@ -449,7 +459,7 @@ export function ZoneMergePanel({
                   <input
                     type="checkbox"
                     checked={projectChecked}
-                    aria-label={`选择重要事项 ${project.name || index + 1}`}
+                    aria-label={`选择重要事项 ${displayName}`}
                     onChange={() => toggle("projects", project.id)}
                   />
                 </label>
@@ -461,46 +471,29 @@ export function ZoneMergePanel({
                       onSetPrimary={() => setSelection(setPrimary(selection, project.id))}
                     />
                     <span className="drag-handle">{index + 1}</span>
+                    <ProjectNameInput name={project.name} onRename={(next) => renameProject(project.id, next)} />
                     {open ? (
-                      <>
-                        <input
-                          className="text-input"
-                          placeholder="项目名称 *"
-                          value={project.name}
-                          onChange={(event) =>
-                            onChange({
-                              ...value,
-                              projects: value.projects.map((item) =>
-                                item.id === project.id ? { ...item, name: event.target.value } : item,
-                              ),
-                            })
-                          }
-                        />
-                        <select
-                          value={project.status ?? ""}
-                          aria-label="项目标签"
-                          onChange={(event) =>
-                            onChange({
-                              ...value,
-                              projects: value.projects.map((item) =>
-                                item.id === project.id
-                                  ? { ...item, status: (event.target.value || undefined) as ProjectStatus | undefined }
-                                  : item,
-                              ),
-                            })
-                          }
-                        >
-                          <option value="">标签（可选）</option>
-                          {(Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((key) => (
-                            <option key={key} value={key}>{PROJECT_STATUS_LABEL[key]}</option>
-                          ))}
-                        </select>
-                      </>
+                      <select
+                        value={project.status ?? ""}
+                        aria-label="项目标签"
+                        onChange={(event) =>
+                          onChange({
+                            ...value,
+                            projects: value.projects.map((item) =>
+                              item.id === project.id
+                                ? { ...item, status: (event.target.value || undefined) as ProjectStatus | undefined }
+                                : item,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="">标签（可选）</option>
+                        {(Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((key) => (
+                          <option key={key} value={key}>{PROJECT_STATUS_LABEL[key]}</option>
+                        ))}
+                      </select>
                     ) : (
-                      <>
-                        <span className="project-collapse-name">{displayName}</span>
-                        <span className="project-collapse-count">{itemCount} 条</span>
-                      </>
+                      <span className="project-collapse-count">{itemCount} 条</span>
                     )}
                     <button className="btn btn-ghost btn-sm" onClick={() => moveProject(value, index, -1, onChange)}>上移</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => moveProject(value, index, 1, onChange)}>下移</button>
@@ -784,6 +777,48 @@ export function ZoneMergePanel({
         )}
       </section>
     </div>
+  );
+}
+
+/** Empty or whitespace commits 「未分类」. Unlike partitions, 【】 stay in the project name. */
+function projectNameFromDraft(raw: string): string {
+  const name = String(raw ?? "").trim();
+  return name || UNTAGGED_LABEL;
+}
+
+function ProjectNameInput({ name, onRename }: { name: string; onRename: (next: string) => void }) {
+  // Same commit language as partition headers: non-empty edits write immediately,
+  // a cleared field becomes 未分类 on blur. Escape drops an uncommitted draft.
+  const [draft, setDraft] = useState<string | null>(null);
+  const committed = name.trim() || UNTAGGED_LABEL;
+  const shown = draft ?? committed;
+  return (
+    <input
+      className="text-input project-name-input"
+      placeholder="项目名称 *"
+      aria-label={`项目名称 ${committed}`}
+      value={shown}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setDraft(raw);
+        const trimmed = raw.trim();
+        if (trimmed && trimmed !== name) onRename(trimmed);
+      }}
+      onBlur={() => {
+        const next = projectNameFromDraft(draft ?? committed);
+        const edited = draft !== null;
+        setDraft(null);
+        if (edited && next !== name) onRename(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          setDraft(null);
+        }
+      }}
+    />
   );
 }
 

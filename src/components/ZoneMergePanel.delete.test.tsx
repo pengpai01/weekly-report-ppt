@@ -123,7 +123,9 @@ describe("project delete undo", () => {
 
     expect(document.querySelector('input[aria-label="选择重要事项 设备管理"]')).toBeNull();
     expect(document.body.textContent).not.toContain("联调");
-    expect(document.body.textContent).toContain("ERP");
+    expect((document.querySelector("#merge-zone-projects input.project-name-input") as HTMLInputElement).value).toBe(
+      "ERP",
+    );
     expect(buttons("合并")[0].disabled).toBe(true);
     expect((document.querySelector('input[aria-label="选择重要事项 ERP"]') as HTMLInputElement).checked).toBe(true);
     expect(buttons("撤销本次合并")[0].disabled).toBe(false);
@@ -154,8 +156,10 @@ describe("project delete undo", () => {
     });
     await clickButton("合并");
     expect(document.querySelectorAll("article.project-card")).toHaveLength(1);
-    expect(document.body.textContent).toContain("设备管理");
-    expect(document.body.textContent).not.toContain("ERP");
+    expect((document.querySelector("#merge-zone-projects input.project-name-input") as HTMLInputElement).value).toBe(
+      "设备管理",
+    );
+    expect(document.querySelector('input[aria-label="项目名称 ERP"]')).toBeNull();
 
     await clickButton("删除项目");
     await clickButton("确定删除");
